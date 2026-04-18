@@ -1,0 +1,35 @@
+{
+  "name": "orquestra-web-knowledge",
+  "collection_name": "knowledge_base",
+  "web_crawl": {
+    "adapter": "builtin_bs4",
+    "seed_urls": [
+      "https://example.com/"
+    ],
+    "allowed_domains": [
+      "example.com"
+    ],
+    "blocked_domains": [],
+    "max_depth": 1,
+    "max_pages": 3,
+    "follow_patterns": [],
+    "exclude_patterns": [],
+    "respect_robots": true,
+    "user_agent": "Orquestra_Crawler/1.0",
+    "request_timeout_seconds": 8,
+    "delay_between_requests_ms": 250,
+    "content_selectors": [
+      "main",
+      "article",
+      "body"
+    ],
+    "output_format": "jsonl",
+    "curation_mode": "extractive_summary",
+    "split_ratios": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    },
+    "max_chars_per_document": 3000
+  }
+}

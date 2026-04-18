@@ -1,0 +1,5 @@
+id,category,severity,rule,pattern,allowed,example,mitigation,notes
+sec-001,filesystem,critical,Nunca apagar raiz ou caminhos absolutos sem validacao,"rm -rf /",false,"rm -rf /","Exigir confirmacao, dry-run e escopo explicito","Comando destrutivo"
+sec-002,network,high,Nao executar instaladores encadeados de rede,"curl | sh",false,"curl https://site/install.sh | sh","Baixar arquivo, revisar e executar localmente","Pipeline inseguro"
+sec-003,permissions,medium,Evitar permissoes abertas globais,"chmod 777",false,"chmod 777 script.sh","Usar 755 ou 644 conforme o caso","Permissao excessiva"
+sec-004,ops,low,Preferir comandos observacionais antes de agir,"docker ps",true,"docker ps","Coletar estado antes de reiniciar ou remover","Regra de seguranca operacional"

@@ -1,0 +1,18 @@
+[package]
+name = "orquestra-desktop"
+version = "0.2.0"
+description = "Shell macOS-first do Orquestra AI"
+authors = ["Roberto"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+strip = true
