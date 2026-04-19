@@ -1,10 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="${HOME}/Desenvolvimento/Orquestra"
-if [ ! -d "${ROOT_DIR}" ]; then
-  ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fi
+ROOT_DIR="${ORQUESTRA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 cd "${ROOT_DIR}"
 
@@ -19,5 +16,6 @@ fi
 export PYTHONPATH="${ROOT_DIR}:${PYTHONPATH:-}"
 export ORQUESTRA_API_HOST="${ORQUESTRA_API_HOST:-127.0.0.1}"
 export ORQUESTRA_API_PORT="${ORQUESTRA_API_PORT:-8808}"
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
 
-python3 -m uvicorn orquestra_ai.app:app --host "${ORQUESTRA_API_HOST}" --port "${ORQUESTRA_API_PORT}" --reload
+python3 -m uvicorn orquestra_ai.app:app --host "${ORQUESTRA_API_HOST}" --port "${ORQUESTRA_API_PORT}"

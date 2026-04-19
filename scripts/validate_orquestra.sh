@@ -10,6 +10,7 @@ if [ ! -d ".venv" ]; then
 fi
 
 source .venv/bin/activate
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
 
 echo "[orquestra] py_compile"
 python -m py_compile orquestra_ai/*.py rag/*.py training/local/*.py
@@ -20,7 +21,8 @@ bash -n scripts/*.sh
 echo "[orquestra] frontend build"
 (
   cd orquestra_web
-  npm run build
+  ./node_modules/.bin/tsc -b
+  ./node_modules/.bin/vite build
 )
 
 echo "[orquestra] tauri cargo check"

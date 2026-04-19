@@ -1,15 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="${HOME}/Desenvolvimento/Orquestra"
-if [ ! -d "${ROOT_DIR}" ]; then
-  ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fi
+ROOT_DIR="${ORQUESTRA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 cd "${ROOT_DIR}/orquestra_web"
 
 if [ ! -d "node_modules" ]; then
-  npm install
+  npm install --no-audit --no-fund
 fi
 
-npm run build
+./node_modules/.bin/tsc -b
+./node_modules/.bin/vite build

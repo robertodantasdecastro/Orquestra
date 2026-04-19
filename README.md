@@ -31,7 +31,20 @@ Plataforma macOS-first para orquestrar IA local e remota com chat multi-provider
 - `training/local/`
   - utilitários compartilhados de ingestão e avaliação
 - `scripts/`
-  - scripts de operação do backend, frontend e desktop
+  - scripts de operação do backend, frontend, desktop e ciclo de instalação macOS
+
+## Estado atual
+- backend, frontend web e shell desktop estão íntegros no fluxo local de desenvolvimento;
+- `./scripts/validate_orquestra.sh` é hoje a principal verificação automatizada do projeto;
+- o build desktop do Tauri já fecha localmente no macOS;
+- web e desktop compartilham agora um dashboard operacional com:
+  - serviços
+  - processo
+  - memória
+  - execução
+- chat, memória, RAG e `Workspace Multimodal` já funcionam em smoke local;
+- providers reais continuam opcionais e o fluxo de validação usa modo mock/local-safe;
+- `Train Ops`, conectores e registry já existem na API/UI com gestão operacional e ações locais, mas a execução remota real ainda está em fase posterior.
 
 ## Requisitos
 - macOS
@@ -46,7 +59,7 @@ Plataforma macOS-first para orquestrar IA local e remota com chat multi-provider
 
 ## Instalação rápida
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 ./scripts/bootstrap_orquestra.sh
 ```
 
@@ -55,13 +68,13 @@ Preferência de runtime:
 
 ## Validação rápida
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 ./scripts/validate_orquestra.sh
 ```
 
 ## Rodar a API
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 source .venv/bin/activate
 ./scripts/start_orquestra_api.sh
 ```
@@ -71,7 +84,7 @@ API local:
 
 ## Rodar o frontend web
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 ./scripts/start_orquestra_web.sh
 ```
 
@@ -80,14 +93,48 @@ Frontend local:
 
 ## Rodar o app desktop no macOS
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 ./scripts/start_orquestra_desktop.sh
 ```
 
 ## Build do frontend
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 ./scripts/build_orquestra_web.sh
+```
+
+## Build do app desktop
+```bash
+cd /caminho/para/Orquestra/orquestra_web
+npm run desktop:build
+```
+
+Artefatos gerados:
+- `orquestra_web/src-tauri/target/release/bundle/macos/Orquestra AI.app`
+- `orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI_0.2.0_aarch64.dmg`
+
+## Instalar no macOS
+```bash
+cd /caminho/para/Orquestra
+./scripts/install_orquestra_macos.sh
+```
+
+O instalador:
+- executa bootstrap local;
+- gera o app desktop;
+- instala o bundle em `~/Applications/Orquestra AI.app`;
+- registra um `LaunchAgent` do usuário para manter a API local disponível.
+
+## Desinstalar no macOS
+```bash
+cd /caminho/para/Orquestra
+./scripts/uninstall_orquestra_macos.sh
+```
+
+Para remover também logs e dados de suporte do usuário:
+```bash
+cd /caminho/para/Orquestra
+./scripts/uninstall_orquestra_macos.sh --purge-data
 ```
 
 ## Guias

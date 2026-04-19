@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChatMessage,
   ChatSession,
-  ConnectorDescriptor,
   HealthState,
   JobRecord,
   MemoryRecord,
   MemoryTopic,
   ModelArtifact,
+  OpsDashboard,
+  OpsRun,
   Project,
-  ProviderProfile,
   RagResult,
   RegistryCompareResult,
   SessionSummary,
@@ -24,26 +24,23 @@ import {
   createDeployment,
   createJob,
   createMemory,
+  createOpsRun,
   createProject,
   createSession,
   extractWorkspaceAsset,
   getHealth,
+  getOpsDashboard,
+  getOpsRun,
   getRemoteJobLogs,
   getSummary,
   getTranscript,
   getWorkspaceScan,
-  listConnectors,
   listMemory,
   listMemoryTopics,
   listMessages,
   listModels,
-  listProjects,
-  listProviders,
-  listRegistryModels,
-  listRemoteJobs,
   listSessions,
   listTrainingCandidates,
-  listTrainingJobs,
   listWorkspaceAssets,
   listWorkspaceScans,
   memorizeWorkspaceAsset,
@@ -58,25 +55,33 @@ import {
   streamChat
 } from "./api";
 
-type ViewId = "assistant" | "workspace" | "memory" | "rag" | "models" | "jobs" | "projects" | "settings";
+type ViewId = "dashboard" | "process" | "memory" | "execution" | "assistant" | "workspace" | "projects";
 
 const views: Array<{ id: ViewId; title: string; helper: string }> = [
-  { id: "assistant", title: "Assistant Workspace", helper: "Conversa, resumo de sessão e transcript." },
-  { id: "workspace", title: "Workspace Browser", helper: "Anexe diretórios e explore ativos multimodais." },
-  { id: "memory", title: "Memory Studio", helper: "Tópicos, recall, promoção e candidatos de treino." },
-  { id: "rag", title: "RAG Studio", helper: "Consulta com fontes, scoring e memória integrada." },
-  { id: "models", title: "Model Hub", helper: "Providers, registry, comparação e deploy." },
-  { id: "jobs", title: "Train Ops", helper: "Conectores, jobs remotos e bundles." },
-  { id: "projects", title: "Projects", helper: "Projetos, perfis e defaults operacionais." },
-  { id: "settings", title: "Settings", helper: "Infra local-first, runtime e políticas." }
+  { id: "dashboard", title: "Operations Dashboard", helper: "Serviços, artefatos, validação e estado vivo da stack." },
+  { id: "process", title: "Process Center", helper: "Sessões, scans, listeners, tmux e fluxo operacional ativo." },
+  { id: "memory", title: "Memory Studio", helper: "Memória durável, recall, training candidates e working memory." },
+  { id: "execution", title: "Execution Center", helper: "Providers, conectores, jobs, registry e ações operacionais." },
+  { id: "assistant", title: "Assistant Workspace", helper: "Conversa multi-provider com resumo e transcript separados." },
+  { id: "workspace", title: "Workspace Browser", helper: "Leitura multimodal inventory-first e extração sob demanda." },
+  { id: "projects", title: "Projects", helper: "Projetos, defaults e perfis operacionais do control plane." }
 ];
+
+const serviceCategoryLabels: Record<string, string> = {
+  core: "Core",
+  ui: "Interface",
+  runtime: "Runtime",
+  external: "Externo",
+  provider: "Providers",
+  distribution: "Distribuição"
+};
 
 function formatDate(value?: string | null) {
   if (!value) return "agora";
   return new Date(value).toLocaleString("pt-BR");
 }
 
-function formatBytes(value?: number) {
+function formatBytes(value?: number | null) {
   const size = value ?? 0;
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
@@ -88,17 +93,27 @@ function shortList(items: string[], empty = "Sem dados ainda.") {
   return items.length ? items.join(" • ") : empty;
 }
 
-export default function App() {
-  const [view, setView] = useState<ViewId>("assistant");
-  const [health, setHealth] = useState<HealthState | null>(null);
-  const [providers, setProviders] = useState<ProviderProfile[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [connectors, setConnectors] = useState<ConnectorDescriptor[]>([]);
-  const [trainingJobs, setTrainingJobs] = useState<JobRecord[]>([]);
-  const [remoteJobs, setRemoteJobs] = useState<JobRecord[]>([]);
-  const [registryModels, setRegistryModels] = useState<ModelArtifact[]>([]);
+function compactText(value: string, limit = 180) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized || "Sem conteúdo ainda.";
+  return `${normalized.slice(0, limit - 1)}…`;
+}
 
+function serviceTone(status: string, ready: boolean) {
+  if (ready && status === "online") return "online";
+  if (ready) return "ready";
+  if (status === "idle") return "idle";
+  return "offline";
+}
+
+export default function App() {
+  const [view, setView] = useState<ViewId>("dashboard");
+  const [health, setHealth] = useState<HealthState | null>(null);
+  const [opsDashboard, setOpsDashboard] = useState<OpsDashboard | null>(null);
+
+  const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
+
   const [selectedProviderId, setSelectedProviderId] = useState("lmstudio");
   const [selectedModel, setSelectedModel] = useState("");
   const [models, setModels] = useState<string[]>([]);
@@ -108,14 +123,14 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
   const [sessionTranscript, setSessionTranscript] = useState<SessionTranscript | null>(null);
+  const [resumePayload, setResumePayload] = useState<Record<string, unknown> | null>(null);
   const [chatPrompt, setChatPrompt] = useState("");
   const [chatStreaming, setChatStreaming] = useState(false);
   const [chatMockMode, setChatMockMode] = useState(false);
-  const [resumePayload, setResumePayload] = useState<Record<string, unknown> | null>(null);
 
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [workspacePromptHint, setWorkspacePromptHint] = useState("Analisar pasta de forma inventory-first e lazy.");
-  const [workspacePrompt, setWorkspacePrompt] = useState("Quais arquivos são mais relevantes e como devo abri-los?");
+  const [workspacePrompt, setWorkspacePrompt] = useState("Quais ativos do workspace devo abrir primeiro e por quê?");
   const [workspaceScans, setWorkspaceScans] = useState<WorkspaceScan[]>([]);
   const [selectedScanId, setSelectedScanId] = useState("");
   const [selectedScan, setSelectedScan] = useState<WorkspaceScan | null>(null);
@@ -130,8 +145,8 @@ export default function App() {
   const [trainingCandidates, setTrainingCandidates] = useState<TrainingCandidate[]>([]);
   const [memoryRecallQuery, setMemoryRecallQuery] = useState("Quais são as memórias mais úteis para retomar este projeto?");
   const [memoryRecallResults, setMemoryRecallResults] = useState<Awaited<ReturnType<typeof recallMemory>> | null>(null);
-  const [promoteTitle, setPromoteTitle] = useState("Arquitetura Orquestra V2");
-  const [promoteContent, setPromoteContent] = useState("MemoryGraph, Workspace Multimodal e control plane macOS-first definidos.");
+  const [promoteTitle, setPromoteTitle] = useState("Arquitetura Orquestra");
+  const [promoteContent, setPromoteContent] = useState("Control plane local-first com dashboard operacional, memória estruturada e execução assistida.");
 
   const [ragPrompt, setRagPrompt] = useState("Quais fontes devo priorizar para threat intelligence ativa?");
   const [ragResult, setRagResult] = useState<RagResult | null>(null);
@@ -149,49 +164,65 @@ export default function App() {
   const [registryCandidateId, setRegistryCandidateId] = useState("");
   const [registryCompare, setRegistryCompare] = useState<RegistryCompareResult | null>(null);
   const [remoteLog, setRemoteLog] = useState("");
-  const [statusLine, setStatusLine] = useState("Orquestra V2 pronto para operar em modo local-first.");
 
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const [selectedRun, setSelectedRun] = useState<OpsRun | null>(null);
+  const [opsActionBusyId, setOpsActionBusyId] = useState("");
+  const [statusLine, setStatusLine] = useState("Orquestra pronto para operar em modo local-first.");
+
+  const providers = opsDashboard?.execution_snapshot.providers ?? [];
+  const connectors = opsDashboard?.execution_snapshot.connectors ?? [];
+  const trainingJobs = opsDashboard?.execution_snapshot.training_jobs ?? [];
+  const remoteJobs = opsDashboard?.execution_snapshot.remote_jobs ?? [];
+  const registryModels = opsDashboard?.execution_snapshot.registry_models ?? [];
+  const opsActions = opsDashboard?.execution_snapshot.actions ?? [];
+  const opsRuns = opsDashboard?.execution_snapshot.runs ?? [];
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
   const selectedAsset = workspaceAssets.find((asset) => asset.id === selectedAssetId) ?? null;
   const currentView = views.find((item) => item.id === view)!;
 
+  const servicesByCategory = useMemo(() => {
+    const groups = new Map<string, Array<OpsDashboard["services"][number]>>();
+    for (const service of opsDashboard?.services ?? []) {
+      const bucket = groups.get(service.category) ?? [];
+      bucket.push(service);
+      groups.set(service.category, bucket);
+    }
+    return [...groups.entries()];
+  }, [opsDashboard]);
+
   async function refreshGlobal(preferredProjectId?: string) {
-    const [
-      healthPayload,
-      providersPayload,
-      projectsPayload,
-      connectorsPayload,
-      trainingPayload,
-      remotePayload,
-      registryPayload
-    ] = await Promise.all([
-      getHealth(),
-      listProviders(),
-      listProjects(),
-      listConnectors(),
-      listTrainingJobs(),
-      listRemoteJobs(),
-      listRegistryModels()
-    ]);
-
+    const [healthPayload, dashboardPayload] = await Promise.all([getHealth(), getOpsDashboard()]);
     setHealth(healthPayload);
-    setProviders(providersPayload);
-    setProjects(projectsPayload);
-    setConnectors(connectorsPayload);
-    setTrainingJobs(trainingPayload);
-    setRemoteJobs(remotePayload);
-    setRegistryModels(registryPayload);
+    setOpsDashboard(dashboardPayload);
 
-    const nextProjectId = preferredProjectId ?? selectedProjectId ?? projectsPayload[0]?.id ?? "";
+    const projectsPayload = dashboardPayload.execution_snapshot.projects;
+    setProjects(projectsPayload);
+
+    const nextProjectId = preferredProjectId || selectedProjectId || projectsPayload[0]?.id || "";
     setSelectedProjectId(nextProjectId);
 
     const nextProject = projectsPayload.find((item) => item.id === nextProjectId) ?? projectsPayload[0] ?? null;
-    const nextProviderId = nextProject?.default_provider_id ?? providersPayload[0]?.provider_id ?? "lmstudio";
+    const nextProviderId = nextProject?.default_provider_id ?? dashboardPayload.execution_snapshot.providers[0]?.provider_id ?? "lmstudio";
     setSelectedProviderId(nextProviderId);
+
+    if (!selectedRunId && dashboardPayload.execution_snapshot.runs[0]?.run_id) {
+      setSelectedRunId(dashboardPayload.execution_snapshot.runs[0].run_id);
+    }
   }
 
   async function refreshProjectScoped(projectId: string) {
-    if (!projectId) return;
+    if (!projectId) {
+      setSessions([]);
+      setMemoryRecords([]);
+      setMemoryTopics([]);
+      setTrainingCandidates([]);
+      setWorkspaceScans([]);
+      setSelectedSessionId("");
+      setSelectedScanId("");
+      return;
+    }
+
     const [sessionPayload, memoryPayload, topicsPayload, candidatesPayload, scanPayload] = await Promise.all([
       listSessions(projectId),
       listMemory(projectId),
@@ -206,8 +237,8 @@ export default function App() {
     setWorkspaceScans(scanPayload);
 
     const nextSessionId = sessionPayload.find((item) => item.id === selectedSessionId)?.id ?? sessionPayload[0]?.id ?? "";
-    setSelectedSessionId(nextSessionId);
     const nextScanId = scanPayload.find((item) => item.id === selectedScanId)?.id ?? scanPayload[0]?.id ?? "";
+    setSelectedSessionId(nextSessionId);
     setSelectedScanId(nextScanId);
   }
 
@@ -244,19 +275,25 @@ export default function App() {
       setAssetPreview(null);
       return;
     }
-    const [scanPayload, assetsPayload] = await Promise.all([
-      getWorkspaceScan(scanId),
-      listWorkspaceAssets(scanId)
-    ]);
+    const [scanPayload, assetsPayload] = await Promise.all([getWorkspaceScan(scanId), listWorkspaceAssets(scanId)]);
     setSelectedScan(scanPayload);
     setWorkspaceAssets(assetsPayload);
     const nextAssetId = assetsPayload.find((item) => item.id === selectedAssetId)?.id ?? assetsPayload[0]?.id ?? "";
     setSelectedAssetId(nextAssetId);
   }
 
+  async function refreshRun(runId: string) {
+    if (!runId) {
+      setSelectedRun(null);
+      return;
+    }
+    const payload = await getOpsRun(runId);
+    setSelectedRun(payload);
+  }
+
   useEffect(() => {
     refreshGlobal()
-      .then(() => setStatusLine("Bootstrap do Orquestra concluído."))
+      .then(() => setStatusLine("Bootstrap do dashboard operacional concluído."))
       .catch((error) => setStatusLine(`Falha no bootstrap: ${String(error)}`));
   }, []);
 
@@ -267,11 +304,9 @@ export default function App() {
 
   useEffect(() => {
     if (!selectedProviderId) return;
-    const projectPreferredModel = projects.find((item) => item.id === selectedProjectId)?.default_model;
-    refreshProviderModels(selectedProviderId, projectPreferredModel).catch((error) =>
-      setStatusLine(`Falha ao listar modelos: ${String(error)}`)
-    );
-  }, [selectedProviderId, selectedProjectId]);
+    const preferredModel = projects.find((item) => item.id === selectedProjectId)?.default_model;
+    refreshProviderModels(selectedProviderId, preferredModel).catch((error) => setStatusLine(`Falha ao listar modelos: ${String(error)}`));
+  }, [selectedProviderId, selectedProjectId, projects]);
 
   useEffect(() => {
     if (!selectedSessionId) return;
@@ -292,6 +327,28 @@ export default function App() {
       .then(setAssetPreview)
       .catch(() => setAssetPreview(null));
   }, [selectedAssetId]);
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      setSelectedRun(null);
+      return;
+    }
+    refreshRun(selectedRunId).catch((error) => setStatusLine(`Falha ao carregar execução: ${String(error)}`));
+
+    const interval = window.setInterval(() => {
+      refreshRun(selectedRunId).catch(() => undefined);
+    }, 4000);
+    return () => window.clearInterval(interval);
+  }, [selectedRunId]);
+
+  useEffect(() => {
+    const shouldPoll = view === "dashboard" || view === "process" || view === "execution";
+    if (!shouldPoll) return;
+    const interval = window.setInterval(() => {
+      refreshGlobal(selectedProjectId).catch(() => undefined);
+    }, 12000);
+    return () => window.clearInterval(interval);
+  }, [view, selectedProjectId]);
 
   async function handleSendChat() {
     if (!chatPrompt.trim() || chatStreaming) return;
@@ -330,9 +387,7 @@ export default function App() {
           mock_response: chatMockMode
         },
         {
-          onSession: ({ session_id }) => {
-            setSelectedSessionId(session_id);
-          },
+          onSession: ({ session_id }) => setSelectedSessionId(session_id),
           onDelta: (text) => {
             setMessages((current) =>
               current.map((message, index) =>
@@ -374,6 +429,7 @@ export default function App() {
         }
       );
       await refreshProjectScoped(selectedProjectId);
+      await refreshGlobal(selectedProjectId);
       if (selectedSessionId) {
         await refreshSession(selectedSessionId);
       }
@@ -389,7 +445,7 @@ export default function App() {
     try {
       const payload = await resumeSession(selectedSessionId);
       setResumePayload(payload);
-      setStatusLine("Payload de retomada da sessão atualizado.");
+      setStatusLine("Payload de retomada atualizado.");
       await refreshSession(selectedSessionId);
     } catch (error) {
       setStatusLine(`Falha ao retomar sessão: ${String(error)}`);
@@ -405,8 +461,10 @@ export default function App() {
         prompt_hint: workspacePromptHint
       });
       setSelectedScanId(scan.id);
-      setStatusLine(`Diretório anexado com sucesso: ${scan.root_path}`);
+      setWorkspaceResult(null);
+      setStatusLine(`Diretório anexado: ${scan.root_path}`);
       await refreshProjectScoped(selectedProjectId);
+      await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha ao anexar diretório: ${String(error)}`);
     }
@@ -425,6 +483,7 @@ export default function App() {
       setWorkspaceResult(result);
       setStatusLine(`Workspace respondeu usando ${result.provider_id}/${result.model_name}.`);
       await refreshWorkspace(selectedScanId);
+      await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha na consulta multimodal: ${String(error)}`);
     }
@@ -437,6 +496,7 @@ export default function App() {
       setAssetPreview(payload);
       setStatusLine("Derivados do asset atualizados.");
       await refreshWorkspace(selectedScanId);
+      await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha ao extrair asset: ${String(error)}`);
     }
@@ -446,7 +506,7 @@ export default function App() {
     if (!selectedAssetId) return;
     try {
       const payload = await openWorkspaceAsset(selectedAssetId);
-      setStatusLine(`Abrir asset via ${payload.strategy}: ${payload.absolute_path}`);
+      setStatusLine(`Abrindo asset via ${payload.strategy}: ${payload.absolute_path}`);
       window.open(rawPreviewUrl(selectedAssetId), "_blank", "noopener,noreferrer");
     } catch (error) {
       setStatusLine(`Falha ao abrir asset: ${String(error)}`);
@@ -457,8 +517,9 @@ export default function App() {
     if (!selectedAssetId) return;
     try {
       await memorizeWorkspaceAsset(selectedAssetId, { project_id: selectedProjectId || undefined });
-      setStatusLine("Asset promovido para memória de workspace.");
+      setStatusLine("Asset promovido para memória.");
       await refreshProjectScoped(selectedProjectId);
+      await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha ao memorizar asset: ${String(error)}`);
     }
@@ -485,10 +546,11 @@ export default function App() {
         scope: "project_memory",
         title: promoteTitle,
         content: promoteContent,
-        source: "workspace_ui"
+        source: "memory_studio"
       });
       setStatusLine("Memória promovida para tópico durável.");
       await refreshProjectScoped(selectedProjectId);
+      await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha ao promover memória: ${String(error)}`);
     }
@@ -500,13 +562,14 @@ export default function App() {
         project_id: selectedProjectId || undefined,
         session_id: selectedSessionId || undefined,
         scope: "semantic_memory",
-        source: "workspace_ui",
+        source: "memory_studio",
         content: promoteContent,
         confidence: 0.82,
         approved_for_training: false
       });
       setStatusLine("Memória manual registrada.");
       await refreshProjectScoped(selectedProjectId);
+      await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha ao criar memória: ${String(error)}`);
     }
@@ -522,13 +585,14 @@ export default function App() {
         collection_name: "knowledge_base",
         provider_id: selectedProviderId || undefined,
         model_name: selectedModel || undefined,
-        task_type: "orquestra_analysis",
+        task_type: "orquestra_execution",
         remember: true,
         mock_llm: chatMockMode
       });
       setRagResult(result);
       setStatusLine("Consulta do RAG concluída.");
       await refreshProjectScoped(selectedProjectId);
+      await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha no RAG Studio: ${String(error)}`);
     } finally {
@@ -553,10 +617,10 @@ export default function App() {
         project_id: selectedProjectId || undefined,
         connector: connectorId,
         spec: {
-          model_name: selectedModel,
+          project_id: selectedProjectId,
           provider_id: selectedProviderId,
-          source: "orquestra_v2_ui",
-          project_id: selectedProjectId
+          model_name: selectedModel,
+          source: "execution_center"
         }
       });
       setStatusLine(`Job ${kind} criado no conector ${connectorId}.`);
@@ -596,11 +660,27 @@ export default function App() {
       await createDeployment(selectedProjectId, {
         artifact_id: registryCandidateId,
         environment: "local",
-        notes: "Deploy registrado pela UI Orquestra V2."
+        notes: "Deploy registrado pelo Execution Center."
       });
       setStatusLine("Deploy registrado no projeto.");
+      await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha ao registrar deploy: ${String(error)}`);
+    }
+  }
+
+  async function handleRunOperation(actionId: string) {
+    try {
+      setOpsActionBusyId(actionId);
+      const run = await createOpsRun({ action_id: actionId });
+      setSelectedRunId(run.run_id);
+      setSelectedRun(run);
+      setStatusLine(`Execução operacional iniciada: ${run.label}.`);
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao iniciar ação operacional: ${String(error)}`);
+    } finally {
+      setOpsActionBusyId("");
     }
   }
 
@@ -611,7 +691,7 @@ export default function App() {
           <div className="brand-chip">OA</div>
           <div>
             <strong>Orquestra AI</strong>
-            <span>MemoryGraph + Workspace Multimodal</span>
+            <span>Dashboard + Processo + Memória + Execução</span>
           </div>
         </div>
 
@@ -674,7 +754,15 @@ export default function App() {
                 ))}
               </select>
             </label>
-            <button type="button" className="ghost-button" onClick={() => refreshGlobal(selectedProjectId).then(() => refreshProjectScoped(selectedProjectId))}>
+            <button
+              type="button"
+              className="ghost-button"
+              onClick={() =>
+                refreshGlobal(selectedProjectId)
+                  .then(() => refreshProjectScoped(selectedProjectId))
+                  .catch((error) => setStatusLine(`Falha ao atualizar: ${String(error)}`))
+              }
+            >
               Atualizar
             </button>
           </div>
@@ -682,34 +770,566 @@ export default function App() {
 
         <section className="hero-strip">
           <div className="hero-copy">
-            <h2>Um workspace único para conversar, lembrar, varrer pastas, consultar o RAG e operar jobs.</h2>
+            <h2>O Orquestra agora expõe a operação inteira em uma única superfície para web e desktop macOS.</h2>
             <p>
-              O Orquestra V2 prioriza inventário leve, memória estruturada e execução local-first. Quando nuvem e compute
-              remoto estiverem disponíveis, os mesmos objetos e rotas continuam válidos.
+              O dashboard mostra serviços que fazem a stack funcionar, o centro de processo acompanha sessões e scans,
+              a memória fica visível como sistema vivo e o centro de execução controla validação, build, instalação,
+              jobs, providers e registry.
             </p>
           </div>
           <div className="hero-metrics">
-            <article>
-              <span>Backend</span>
-              <strong>{health?.ok ? "healthy" : "offline"}</strong>
-            </article>
-            <article>
-              <span>Providers</span>
-              <strong>{health?.providers ?? 0}</strong>
-            </article>
-            <article>
-              <span>Tópicos</span>
-              <strong>{health?.memory_topics ?? 0}</strong>
-            </article>
-            <article>
-              <span>Scans</span>
-              <strong>{health?.workspace_scans ?? 0}</strong>
-            </article>
+            {(opsDashboard?.metrics ?? []).map((metric) => (
+              <article key={metric.id}>
+                <span>{metric.label}</span>
+                <strong>{metric.value}</strong>
+                <small>{metric.helper}</small>
+              </article>
+            ))}
+            {!opsDashboard && (
+              <article>
+                <span>Runtime</span>
+                <strong>Carregando</strong>
+                <small>Aguardando snapshot operacional.</small>
+              </article>
+            )}
           </div>
         </section>
 
         <div className="workspace-grid">
           <section className="primary-stage">
+            {view === "dashboard" && (
+              <div className="stage-grid">
+                <section className="panel">
+                  <div className="panel-head">
+                    <div>
+                      <p className="eyebrow">Service fabric</p>
+                      <h3>Todos os serviços que fazem o Orquestra funcionar</h3>
+                    </div>
+                    <span className="panel-meta">snapshot {formatDate(opsDashboard?.generated_at)}</span>
+                  </div>
+
+                  {servicesByCategory.map(([category, services]) => (
+                    <div key={category} className="service-cluster">
+                      <div className="cluster-head">
+                        <strong>{serviceCategoryLabels[category] || category}</strong>
+                        <span>{services.length} itens</span>
+                      </div>
+                      <div className="service-grid">
+                        {services.map((service) => (
+                          <article key={service.service_id} className={`service-card ${serviceTone(service.status, service.ready)}`}>
+                            <div className="service-head">
+                              <strong>{service.label}</strong>
+                              <span className={`state-pill ${serviceTone(service.status, service.ready)}`}>{service.status}</span>
+                            </div>
+                            <p>{service.summary}</p>
+                            <small>{service.detail}</small>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </section>
+
+                <section className="panel two-column-panel">
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Quick control</p>
+                        <h3>Ações gerenciadas</h3>
+                      </div>
+                    </div>
+                    <div className="action-grid">
+                      {opsActions.map((action) => (
+                        <button
+                          key={action.action_id}
+                          type="button"
+                          className={`action-card ${opsActionBusyId === action.action_id ? "active" : ""}`}
+                          onClick={() => handleRunOperation(action.action_id)}
+                          disabled={Boolean(opsActionBusyId)}
+                        >
+                          <strong>{action.label}</strong>
+                          <span>{action.kind}</span>
+                          <p>{action.summary}</p>
+                          <small>{action.command_preview}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Distribution</p>
+                        <h3>Artefatos de instalação</h3>
+                      </div>
+                    </div>
+                    <div className="artifact-grid">
+                      <article className="provider-card">
+                        <strong>App Bundle</strong>
+                        <span>{opsDashboard?.execution_snapshot.artifacts.app_bundle_exists ? "ready" : "missing"}</span>
+                        <p>{opsDashboard?.execution_snapshot.artifacts.app_bundle_path || "-"}</p>
+                      </article>
+                      <article className="provider-card">
+                        <strong>DMG</strong>
+                        <span>{opsDashboard?.execution_snapshot.artifacts.dmg_exists ? "ready" : "missing"}</span>
+                        <p>{opsDashboard?.execution_snapshot.artifacts.dmg_path || "-"}</p>
+                      </article>
+                      <article className="provider-card">
+                        <strong>Instalador</strong>
+                        <span>{opsDashboard?.execution_snapshot.artifacts.installer_exists ? "ready" : "missing"}</span>
+                        <p>{opsDashboard?.execution_snapshot.artifacts.installer_path || "-"}</p>
+                      </article>
+                      <article className="provider-card">
+                        <strong>Desinstalador</strong>
+                        <span>{opsDashboard?.execution_snapshot.artifacts.uninstaller_exists ? "ready" : "missing"}</span>
+                        <p>{opsDashboard?.execution_snapshot.artifacts.uninstaller_path || "-"}</p>
+                      </article>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {view === "process" && (
+              <div className="stage-grid">
+                <section className="panel two-column-panel">
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Listeners</p>
+                        <h3>Estado vivo da stack</h3>
+                      </div>
+                    </div>
+                    <div className="metric-grid">
+                      <article className="provider-card">
+                        <strong>API</strong>
+                        <span>{opsDashboard?.process_snapshot.listeners.api ? "online" : "offline"}</span>
+                        <p>{health?.workspace_root || "-"}</p>
+                      </article>
+                      <article className="provider-card">
+                        <strong>Web</strong>
+                        <span>{opsDashboard?.process_snapshot.listeners.web ? "online" : "idle"}</span>
+                        <p>http://127.0.0.1:4177</p>
+                      </article>
+                      <article className="provider-card">
+                        <strong>tmux</strong>
+                        <span>{opsDashboard?.process_snapshot.tmux_sessions.length || 0} sessões</span>
+                        <p>{shortList(opsDashboard?.process_snapshot.tmux_sessions ?? [])}</p>
+                      </article>
+                      <article className="provider-card">
+                        <strong>Runtime</strong>
+                        <span>{Object.keys(opsDashboard?.process_snapshot.runtime_paths ?? {}).length} paths</span>
+                        <p>Banco, workspace, memorygraph e qdrant.</p>
+                      </article>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Background processes</p>
+                        <h3>Processos observados no sistema</h3>
+                      </div>
+                    </div>
+                    <div className="stack-list">
+                      {(opsDashboard?.process_snapshot.background_processes ?? []).map((process) => (
+                        <article key={`${process.pid}-${process.command}`} className="stack-row">
+                          <strong>{process.pid || "pid?"}</strong>
+                          <span>{compactText(process.command, 140)}</span>
+                        </article>
+                      ))}
+                      {!(opsDashboard?.process_snapshot.background_processes.length) && (
+                        <div className="empty-state">
+                          <h4>Nenhum processo relevante ativo.</h4>
+                          <p>O ambiente está pronto, mas sem web/API/tmux rodando agora.</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="panel two-column-panel">
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Sessions</p>
+                        <h3>Fluxo de trabalho ativo</h3>
+                      </div>
+                      <button
+                        type="button"
+                        className="ghost-button"
+                        onClick={async () => {
+                          const session = await createSession({
+                            project_id: selectedProjectId || undefined,
+                            title: "Nova sessão Orquestra",
+                            provider_id: selectedProviderId,
+                            model_name: selectedModel
+                          });
+                          setSelectedSessionId(session.id);
+                          await refreshProjectScoped(selectedProjectId);
+                        }}
+                      >
+                        Nova sessão
+                      </button>
+                    </div>
+                    <div className="session-list tall">
+                      {sessions.map((session) => (
+                        <button
+                          key={session.id}
+                          type="button"
+                          className={selectedSessionId === session.id ? "session-card active" : "session-card"}
+                          onClick={() => setSelectedSessionId(session.id)}
+                        >
+                          <strong>{session.title}</strong>
+                          <span>{session.provider_id}/{session.model_name}</span>
+                          <small>{formatDate(session.last_message_at || session.updated_at || session.created_at)}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Workspace scans</p>
+                        <h3>Inventário e execução de leitura</h3>
+                      </div>
+                    </div>
+                    <div className="scan-grid tall">
+                      {workspaceScans.map((scan) => (
+                        <button
+                          key={scan.id}
+                          type="button"
+                          className={selectedScanId === scan.id ? "scan-card active" : "scan-card"}
+                          onClick={() => setSelectedScanId(scan.id)}
+                        >
+                          <strong>{scan.root_path}</strong>
+                          <span>{scan.total_assets} ativos</span>
+                          <small>{formatBytes(scan.total_bytes)}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {view === "memory" && (
+              <div className="stage-grid">
+                <section className="panel">
+                  <div className="panel-head">
+                    <div>
+                      <p className="eyebrow">Memory fabric</p>
+                      <h3>Sistema de memória do Orquestra</h3>
+                    </div>
+                  </div>
+
+                  <div className="metric-grid">
+                    <article className="provider-card">
+                      <strong>Tópicos</strong>
+                      <span>{opsDashboard?.memory_snapshot.topics ?? 0}</span>
+                      <p>Memória durável consolidada.</p>
+                    </article>
+                    <article className="provider-card">
+                      <strong>Registros</strong>
+                      <span>{opsDashboard?.memory_snapshot.records ?? 0}</span>
+                      <p>Memória episódica, semântica e workspace.</p>
+                    </article>
+                    <article className="provider-card">
+                      <strong>Candidates</strong>
+                      <span>{opsDashboard?.memory_snapshot.training_candidates ?? 0}</span>
+                      <p>Candidatos de treino a partir do uso real.</p>
+                    </article>
+                    <article className="provider-card">
+                      <strong>Transcript events</strong>
+                      <span>{opsDashboard?.memory_snapshot.message_count ?? 0}</span>
+                      <p>Eventos persistidos na camada bruta.</p>
+                    </article>
+                  </div>
+
+                  <div className="scope-strip">
+                    {(opsDashboard?.memory_snapshot.scope_breakdown ?? []).map((scope) => (
+                      <span key={scope.scope}>{scope.scope}: {scope.count}</span>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="panel two-column-panel">
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Recall</p>
+                        <h3>Seleção semântica + lexical</h3>
+                      </div>
+                    </div>
+                    <div className="form-stack">
+                      <textarea value={memoryRecallQuery} onChange={(event) => setMemoryRecallQuery(event.target.value)} />
+                      <div className="composer-actions">
+                        <button type="button" className="primary-button" onClick={handleRecallMemory}>
+                          Executar recall
+                        </button>
+                        <button type="button" className="ghost-button" onClick={handleCreateManualMemory}>
+                          Criar memória manual
+                        </button>
+                      </div>
+                    </div>
+                    <div className="memory-column">
+                      {(memoryRecallResults?.items ?? []).map((item, index) => (
+                        <article key={`${item.title}-${index}`} className="memory-card">
+                          <strong>{item.title}</strong>
+                          <span>{item.scope || "memory"}</span>
+                          <p>{item.content}</p>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Promotion</p>
+                        <h3>Memória durável e candidates</h3>
+                      </div>
+                    </div>
+                    <div className="form-stack">
+                      <input value={promoteTitle} onChange={(event) => setPromoteTitle(event.target.value)} />
+                      <textarea value={promoteContent} onChange={(event) => setPromoteContent(event.target.value)} />
+                      <div className="composer-actions">
+                        <button type="button" className="primary-button" onClick={handlePromoteMemory}>
+                          Promover memória
+                        </button>
+                      </div>
+                    </div>
+                    <div className="memory-grid dense">
+                      <div className="memory-column">
+                        <h4>Registros recentes</h4>
+                        {memoryRecords.map((record) => (
+                          <article key={record.id} className="memory-card">
+                            <strong>{record.scope}</strong>
+                            <span>{record.source}</span>
+                            <p>{record.content}</p>
+                          </article>
+                        ))}
+                      </div>
+                      <div className="memory-column">
+                        <h4>Training candidates</h4>
+                        {trainingCandidates.map((candidate) => (
+                          <article key={candidate.id} className="memory-card">
+                            <strong>{candidate.source}</strong>
+                            <span>{candidate.approved ? "approved" : "draft"}</span>
+                            <p>{candidate.instruction}</p>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {view === "execution" && (
+              <div className="stage-grid">
+                <section className="panel two-column-panel">
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Providers</p>
+                        <h3>Mesh gateway e modelos</h3>
+                      </div>
+                    </div>
+                    <div className="provider-grid">
+                      {providers.map((provider) => (
+                        <article key={provider.id} className="provider-card">
+                          <strong>{provider.label}</strong>
+                          <span>{provider.transport}</span>
+                          <p>{provider.default_model || "sem default"}</p>
+                          <div className="token-list">
+                            {provider.capabilities.map((capability) => (
+                              <span key={capability}>{capability}</span>
+                            ))}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Execution management</p>
+                        <h3>Ações, runs e logs</h3>
+                      </div>
+                    </div>
+                    <div className="action-grid compact">
+                      {opsActions.map((action) => (
+                        <button
+                          key={action.action_id}
+                          type="button"
+                          className={`action-card ${selectedRun?.action_id === action.action_id ? "active" : ""}`}
+                          onClick={() => handleRunOperation(action.action_id)}
+                          disabled={Boolean(opsActionBusyId)}
+                        >
+                          <strong>{action.label}</strong>
+                          <span>{action.kind}</span>
+                          <p>{action.summary}</p>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="run-grid">
+                      {opsRuns.map((run) => (
+                        <button
+                          key={run.run_id}
+                          type="button"
+                          className={selectedRunId === run.run_id ? "job-row active" : "job-row"}
+                          onClick={() => setSelectedRunId(run.run_id)}
+                        >
+                          <strong>{run.label}</strong>
+                          <span>{run.status}</span>
+                          <small>{formatDate(run.started_at)}</small>
+                        </button>
+                      ))}
+                    </div>
+                    <pre className="preview-text terminal">
+                      {selectedRun?.log_tail || "Selecione uma execução operacional para acompanhar os logs."}
+                    </pre>
+                  </div>
+                </section>
+
+                <section className="panel two-column-panel">
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Connectors & jobs</p>
+                        <h3>Train Ops e remote orchestration</h3>
+                      </div>
+                    </div>
+                    <div className="provider-grid">
+                      {connectors.map((connector) => (
+                        <article key={connector.connector_id} className="provider-card">
+                          <strong>{connector.label}</strong>
+                          <span>{connector.ready ? "ready" : connector.status}</span>
+                          <p>{connector.description}</p>
+                          <div className="token-list">
+                            {connector.capabilities.map((capability) => (
+                              <span key={capability}>{capability}</span>
+                            ))}
+                          </div>
+                          <div className="composer-actions">
+                            <button type="button" className="ghost-button" onClick={() => handleCreateJob("training", connector.connector_id)}>
+                              Job treino
+                            </button>
+                            <button type="button" className="primary-button" onClick={() => handleCreateJob("remote", connector.connector_id)}>
+                              Job remoto
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+
+                    <div className="jobs-grid">
+                      <div>
+                        <h4>Training jobs</h4>
+                        {trainingJobs.map((job) => (
+                          <button key={job.id} type="button" className="job-row">
+                            <strong>{job.connector}</strong>
+                            <span>{job.status}</span>
+                            <small>{formatDate(job.created_at)}</small>
+                          </button>
+                        ))}
+                      </div>
+                      <div>
+                        <h4>Remote jobs</h4>
+                        {remoteJobs.map((job) => (
+                          <button key={job.id} type="button" className="job-row" onClick={() => handleLoadRemoteLogs(job.id)}>
+                            <strong>{job.connector}</strong>
+                            <span>{job.status}</span>
+                            <small>{formatDate(job.created_at)}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <pre className="preview-text terminal">{remoteLog || "Selecione um job remoto para carregar logs."}</pre>
+                  </div>
+
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Registry & RAG</p>
+                        <h3>Comparação, deploy e consulta executável</h3>
+                      </div>
+                    </div>
+                    <div className="split-form">
+                      <label>
+                        Baseline
+                        <select value={registryBaselineId} onChange={(event) => setRegistryBaselineId(event.target.value)}>
+                          <option value="">Selecione</option>
+                          {registryModels.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Candidate
+                        <select value={registryCandidateId} onChange={(event) => setRegistryCandidateId(event.target.value)}>
+                          <option value="">Selecione</option>
+                          {registryModels.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="composer-actions">
+                      <button type="button" className="ghost-button" onClick={handleCreateDeployment} disabled={!registryCandidateId}>
+                        Registrar deploy
+                      </button>
+                      <button type="button" className="primary-button" onClick={handleCompareRegistry} disabled={!registryBaselineId || !registryCandidateId}>
+                        Comparar
+                      </button>
+                    </div>
+
+                    {registryCompare && (
+                      <div className="compare-grid">
+                        <article className="result-panel">
+                          <h4>Baseline</h4>
+                          <p>{registryCompare.baseline.name}</p>
+                        </article>
+                        <article className="result-panel">
+                          <h4>Candidate</h4>
+                          <p>{registryCompare.candidate.name}</p>
+                        </article>
+                        <article className="result-panel">
+                          <h4>Delta</h4>
+                          <pre className="preview-text">{JSON.stringify(registryCompare.delta, null, 2)}</pre>
+                        </article>
+                      </div>
+                    )}
+
+                    <div className="form-stack">
+                      <textarea value={ragPrompt} onChange={(event) => setRagPrompt(event.target.value)} />
+                      <div className="composer-actions">
+                        <button type="button" className="primary-button" onClick={handleRagQuery} disabled={ragLoading}>
+                          {ragLoading ? "Consultando..." : "Executar consulta"}
+                        </button>
+                      </div>
+                    </div>
+                    {ragResult && (
+                      <article className="result-panel">
+                        <header>
+                          <strong>{ragResult.provider_id || selectedProviderId}/{ragResult.model_name || selectedModel}</strong>
+                          <span>{ragResult.latency_seconds?.toFixed(2) ?? "0.00"}s</span>
+                        </header>
+                        <p>{ragResult.answer}</p>
+                      </article>
+                    )}
+                  </div>
+                </section>
+              </div>
+            )}
+
             {view === "assistant" && (
               <div className="assistant-layout">
                 <section className="panel session-list-panel">
@@ -821,6 +1441,7 @@ export default function App() {
                       <span>query em mock seguro</span>
                     </label>
                   </div>
+
                   <div className="form-stack">
                     <input
                       value={workspaceRootPath}
@@ -970,286 +1591,6 @@ export default function App() {
               </div>
             )}
 
-            {view === "memory" && (
-              <div className="memory-layout">
-                <section className="panel">
-                  <div className="panel-head">
-                    <div>
-                      <p className="eyebrow">Recall</p>
-                      <h3>Seleção leve + semântica</h3>
-                    </div>
-                  </div>
-                  <div className="form-stack">
-                    <textarea value={memoryRecallQuery} onChange={(event) => setMemoryRecallQuery(event.target.value)} />
-                    <div className="composer-actions">
-                      <button type="button" className="primary-button" onClick={handleRecallMemory}>
-                        Executar recall
-                      </button>
-                      <button type="button" className="ghost-button" onClick={handleCreateManualMemory}>
-                        Criar memória manual
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="memory-grid">
-                    <div className="memory-column">
-                      <h4>Tópicos duráveis</h4>
-                      {memoryTopics.map((topic) => (
-                        <article key={topic.id} className="memory-card">
-                          <strong>{topic.title}</strong>
-                          <span>{topic.scope}</span>
-                          <p>{topic.description || topic.slug}</p>
-                        </article>
-                      ))}
-                    </div>
-                    <div className="memory-column">
-                      <h4>Recall</h4>
-                      {(memoryRecallResults?.items ?? []).map((item, index) => (
-                        <article key={`${item.title}-${index}`} className="memory-card">
-                          <strong>{item.title}</strong>
-                          <span>{item.scope || "memory"}</span>
-                          <p>{item.content}</p>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                </section>
-
-                <section className="panel">
-                  <div className="panel-head">
-                    <div>
-                      <p className="eyebrow">Promotion</p>
-                      <h3>Promover resumo útil para memória durável</h3>
-                    </div>
-                  </div>
-                  <div className="form-stack">
-                    <input value={promoteTitle} onChange={(event) => setPromoteTitle(event.target.value)} />
-                    <textarea value={promoteContent} onChange={(event) => setPromoteContent(event.target.value)} />
-                    <div className="composer-actions">
-                      <button type="button" className="primary-button" onClick={handlePromoteMemory}>
-                        Promover memória
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="memory-grid dense">
-                    <div className="memory-column">
-                      <h4>Registros recentes</h4>
-                      {memoryRecords.map((record) => (
-                        <article key={record.id} className="memory-card">
-                          <strong>{record.scope}</strong>
-                          <span>{record.source}</span>
-                          <p>{record.content}</p>
-                        </article>
-                      ))}
-                    </div>
-                    <div className="memory-column">
-                      <h4>Training candidates</h4>
-                      {trainingCandidates.map((candidate) => (
-                        <article key={candidate.id} className="memory-card">
-                          <strong>{candidate.source}</strong>
-                          <span>{candidate.approved ? "approved" : "draft"}</span>
-                          <p>{candidate.instruction}</p>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                </section>
-              </div>
-            )}
-
-            {view === "rag" && (
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">RAG Studio</p>
-                    <h3>Consulta com fontes e memória compartilhada</h3>
-                  </div>
-                </div>
-                <div className="form-stack">
-                  <textarea value={ragPrompt} onChange={(event) => setRagPrompt(event.target.value)} />
-                  <div className="composer-actions">
-                    <button type="button" className="primary-button" onClick={handleRagQuery} disabled={ragLoading}>
-                      {ragLoading ? "Consultando..." : "Executar consulta"}
-                    </button>
-                  </div>
-                </div>
-
-                {ragResult && (
-                  <div className="result-layout">
-                    <article className="result-panel">
-                      <header>
-                        <strong>{ragResult.provider_id || selectedProviderId}/{ragResult.model_name || selectedModel}</strong>
-                        <span>{ragResult.latency_seconds?.toFixed(2) ?? "0.00"}s</span>
-                      </header>
-                      <p>{ragResult.answer}</p>
-                    </article>
-                    <article className="result-panel">
-                      <h4>Citações</h4>
-                      {(ragResult.citations ?? []).map((citation, index) => (
-                        <div key={`${citation.source}-${index}`} className="result-asset">
-                          <strong>{citation.title || citation.source || "Fonte"}</strong>
-                          <span>{citation.channel || "contexto"}</span>
-                        </div>
-                      ))}
-                    </article>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {view === "models" && (
-              <div className="models-layout">
-                <section className="panel">
-                  <div className="panel-head">
-                    <div>
-                      <p className="eyebrow">Mesh Gateway</p>
-                      <h3>Providers e capacidades</h3>
-                    </div>
-                  </div>
-                  <div className="provider-grid">
-                    {providers.map((provider) => (
-                      <article key={provider.id} className="provider-card">
-                        <strong>{provider.label}</strong>
-                        <span>{provider.transport}</span>
-                        <p>{provider.default_model || "sem default"}</p>
-                        <div className="token-list">
-                          {provider.capabilities.map((capability) => (
-                            <span key={capability}>{capability}</span>
-                          ))}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="panel">
-                  <div className="panel-head">
-                    <div>
-                      <p className="eyebrow">Registry</p>
-                      <h3>Comparação e deploy</h3>
-                    </div>
-                  </div>
-                  <div className="split-form">
-                    <label>
-                      Baseline
-                      <select value={registryBaselineId} onChange={(event) => setRegistryBaselineId(event.target.value)}>
-                        <option value="">Selecione</option>
-                        {registryModels.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      Candidate
-                      <select value={registryCandidateId} onChange={(event) => setRegistryCandidateId(event.target.value)}>
-                        <option value="">Selecione</option>
-                        {registryModels.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="composer-actions">
-                    <button type="button" className="ghost-button" onClick={handleCreateDeployment} disabled={!registryCandidateId}>
-                      Registrar deploy
-                    </button>
-                    <button type="button" className="primary-button" onClick={handleCompareRegistry} disabled={!registryBaselineId || !registryCandidateId}>
-                      Comparar
-                    </button>
-                  </div>
-
-                  {registryCompare && (
-                    <div className="compare-grid">
-                      <article className="result-panel">
-                        <h4>Baseline</h4>
-                        <p>{registryCompare.baseline.name}</p>
-                      </article>
-                      <article className="result-panel">
-                        <h4>Candidate</h4>
-                        <p>{registryCompare.candidate.name}</p>
-                      </article>
-                      <article className="result-panel">
-                        <h4>Delta</h4>
-                        <pre className="preview-text">{JSON.stringify(registryCompare.delta, null, 2)}</pre>
-                      </article>
-                    </div>
-                  )}
-                </section>
-              </div>
-            )}
-
-            {view === "jobs" && (
-              <div className="jobs-layout">
-                <section className="panel">
-                  <div className="panel-head">
-                    <div>
-                      <p className="eyebrow">Connectors</p>
-                      <h3>Forge / Remote Ops</h3>
-                    </div>
-                  </div>
-                  <div className="provider-grid">
-                    {connectors.map((connector) => (
-                      <article key={connector.connector_id} className="provider-card">
-                        <strong>{connector.label}</strong>
-                        <span>{connector.ready ? "ready" : connector.status}</span>
-                        <p>{connector.description}</p>
-                        <div className="token-list">
-                          {connector.capabilities.map((capability) => (
-                            <span key={capability}>{capability}</span>
-                          ))}
-                        </div>
-                        <div className="composer-actions">
-                          <button type="button" className="ghost-button" onClick={() => handleCreateJob("training", connector.connector_id)}>
-                            Job treino
-                          </button>
-                          <button type="button" className="primary-button" onClick={() => handleCreateJob("remote", connector.connector_id)}>
-                            Job remoto
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="panel">
-                  <div className="panel-head">
-                    <div>
-                      <p className="eyebrow">Jobs</p>
-                      <h3>Fila, status e logs</h3>
-                    </div>
-                  </div>
-                  <div className="jobs-grid">
-                    <div>
-                      <h4>Training jobs</h4>
-                      {trainingJobs.map((job) => (
-                        <button key={job.id} type="button" className="job-row">
-                          <strong>{job.connector}</strong>
-                          <span>{job.status}</span>
-                          <small>{formatDate(job.created_at)}</small>
-                        </button>
-                      ))}
-                    </div>
-                    <div>
-                      <h4>Remote jobs</h4>
-                      {remoteJobs.map((job) => (
-                        <button key={job.id} type="button" className="job-row" onClick={() => handleLoadRemoteLogs(job.id)}>
-                          <strong>{job.connector}</strong>
-                          <span>{job.status}</span>
-                          <small>{formatDate(job.created_at)}</small>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <pre className="preview-text terminal">{remoteLog || "Selecione um job remoto para carregar logs."}</pre>
-                </section>
-              </div>
-            )}
-
             {view === "projects" && (
               <section className="panel">
                 <div className="panel-head">
@@ -1309,55 +1650,13 @@ export default function App() {
                 </div>
               </section>
             )}
-
-            {view === "settings" && (
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <p className="eyebrow">Settings</p>
-                    <h3>Runtime local-first</h3>
-                  </div>
-                </div>
-                <div className="settings-grid">
-                  <article className="provider-card">
-                    <strong>Workspace root</strong>
-                    <p>{health?.workspace_root || "-"}</p>
-                  </article>
-                  <article className="provider-card">
-                    <strong>Database</strong>
-                    <p>{health?.database_url || "-"}</p>
-                  </article>
-                  <article className="provider-card">
-                    <strong>Redis</strong>
-                    <p>{health?.redis_url || "-"}</p>
-                  </article>
-                  <article className="provider-card">
-                    <strong>Qdrant</strong>
-                    <p>{health?.qdrant_url || health?.qdrant_path || "-"}</p>
-                  </article>
-                </div>
-                <pre className="preview-text">
-                  {JSON.stringify(
-                    {
-                      selectedProject: selectedProject?.name,
-                      selectedProviderId,
-                      selectedModel,
-                      webEnabled: health?.web_enabled,
-                      connectorsReady: connectors.filter((item) => item.ready).map((item) => item.connector_id)
-                    },
-                    null,
-                    2
-                  )}
-                </pre>
-              </section>
-            )}
           </section>
 
           <aside className="context-rail">
             <section className="context-card">
-              <p className="eyebrow">Session Working Memory</p>
+              <p className="eyebrow">Working Memory</p>
               <h3>{selectedSessionId ? "Resumo ativo" : "Sem sessão ativa"}</h3>
-              <p>{sessionSummary?.current_state || "O resumo da sessão aparece aqui após interações ou retomada."}</p>
+              <p>{sessionSummary?.current_state || "O resumo aparece aqui assim que uma sessão vira contexto operacional."}</p>
               <div className="context-list">
                 <span><strong>Arquivos:</strong> {shortList(sessionSummary?.relevant_files ?? [])}</span>
                 <span><strong>Próximos passos:</strong> {sessionSummary?.next_steps || "Sem próximos passos ainda."}</span>
@@ -1373,18 +1672,32 @@ export default function App() {
             </section>
 
             <section className="context-card">
-              <p className="eyebrow">Resume Payload</p>
-              <pre className="preview-text compact">{JSON.stringify(resumePayload, null, 2)}</pre>
+              <p className="eyebrow">Execução operacional</p>
+              <h3>{selectedRun?.label || "Nenhuma execução selecionada"}</h3>
+              <div className="context-list">
+                <span><strong>Status:</strong> {selectedRun?.status || "idle"}</span>
+                <span><strong>Início:</strong> {formatDate(selectedRun?.started_at)}</span>
+                <span><strong>Saída:</strong> {selectedRun?.exit_code ?? "-"}</span>
+              </div>
+              <pre className="preview-text compact terminal">
+                {selectedRun?.log_tail || "Os logs das ações operacionais aparecem aqui."}
+              </pre>
             </section>
 
             <section className="context-card">
-              <p className="eyebrow">Workspace Inspector</p>
+              <p className="eyebrow">Workspace inspector</p>
               <pre className="preview-text compact">
                 {JSON.stringify(
                   {
                     scan: selectedScan ? { root_path: selectedScan.root_path, total_assets: selectedScan.total_assets } : null,
                     asset: selectedAsset ? { path: selectedAsset.relative_path, kind: selectedAsset.asset_kind } : null,
-                    registryModels: registryModels.length
+                    installers: opsDashboard?.execution_snapshot.artifacts
+                      ? {
+                          app: opsDashboard.execution_snapshot.artifacts.app_bundle_exists,
+                          dmg: opsDashboard.execution_snapshot.artifacts.dmg_exists,
+                          installer: opsDashboard.execution_snapshot.artifacts.installer_exists
+                        }
+                      : null
                   },
                   null,
                   2

@@ -34,6 +34,7 @@ from .models import (
     WorkspaceScan,
     utc_now,
 )
+from .operations import OrquestraOperations
 from .services import (
     LocalRagEngine,
     RagQueryOptions,
@@ -215,6 +216,10 @@ class WorkspaceMemorizeRequest(BaseModel):
     source: str = "workspace"
 
 
+class OperationRunRequest(BaseModel):
+    action_id: str
+
+
 def _sse(event: str, data: dict[str, object]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -253,6 +258,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     engine = build_engine(app_settings.database_url)
     memory_graph = MemoryGraphService(app_settings)
     workspace_service = WorkspaceService(app_settings)
+    operations = OrquestraOperations(app_settings)
 
     def bootstrap_runtime() -> None:
         init_database(engine)
@@ -270,6 +276,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.memory_graph = memory_graph
     app.state.workspace_service = workspace_service
+    app.state.operations = operations
     bootstrap_runtime()
 
     frontend_dist = app_settings.workspace_root / "orquestra_web" / "dist"
@@ -328,6 +335,32 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             "memory_topics": topic_count,
             "workspace_scans": scan_count,
         }
+
+    @app.get("/api/ops/dashboard")
+    def ops_dashboard(session: Session = Depends(get_session)) -> dict[str, object]:
+        return operations.dashboard(session)
+
+    @app.get("/api/ops/actions")
+    def ops_actions() -> list[dict[str, object]]:
+        return operations.list_actions()
+
+    @app.get("/api/ops/runs")
+    def ops_runs() -> list[dict[str, object]]:
+        return operations.list_runs()
+
+    @app.get("/api/ops/runs/{run_id}")
+    def ops_run(run_id: str) -> dict[str, object]:
+        try:
+            return operations.get_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Execução operacional não encontrada.") from exc
+
+    @app.post("/api/ops/runs")
+    def create_ops_run(payload: OperationRunRequest) -> dict[str, object]:
+        try:
+            return operations.start_action(payload.action_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Ação operacional não encontrada.") from exc
 
     @app.get("/", response_model=None)
     def serve_frontend():

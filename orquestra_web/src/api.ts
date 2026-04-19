@@ -286,6 +286,105 @@ export type RegistryCompareResult = {
   delta: Record<string, number>;
 };
 
+export type RuntimeService = {
+  service_id: string;
+  label: string;
+  category: string;
+  ready: boolean;
+  status: string;
+  summary: string;
+  detail: string;
+  metadata: Record<string, unknown>;
+};
+
+export type RuntimeMetric = {
+  id: string;
+  label: string;
+  value: number;
+  helper: string;
+};
+
+export type OpsAction = {
+  action_id: string;
+  label: string;
+  summary: string;
+  command_preview: string;
+  kind: string;
+};
+
+export type OpsRun = {
+  run_id: string;
+  action_id: string;
+  label: string;
+  status: string;
+  command: string;
+  cwd: string;
+  log_path: string;
+  started_at: string;
+  finished_at?: string | null;
+  exit_code?: number | null;
+  log_tail: string;
+};
+
+export type OpsDashboard = {
+  generated_at: string;
+  services: RuntimeService[];
+  metrics: RuntimeMetric[];
+  process_snapshot: {
+    background_processes: Array<{ pid: number; command: string; summary: string }>;
+    tmux_sessions: string[];
+    listeners: { api: boolean; web: boolean };
+    recent_sessions: ChatSession[];
+    recent_scans: WorkspaceScan[];
+    recent_jobs: JobRecord[];
+    runtime_paths: Record<string, string>;
+  };
+  memory_snapshot: {
+    topics: number;
+    records: number;
+    training_candidates: number;
+    message_count: number;
+    scope_breakdown: Array<{ scope: string; count: number }>;
+    recent_records: MemoryRecord[];
+    recent_topics: MemoryTopic[];
+    recent_candidates: Array<{
+      id: string;
+      source: string;
+      instruction: string;
+      approved: boolean;
+      created_at: string;
+    }>;
+    storage: {
+      database_size_bytes: number;
+      memorygraph_dir_exists: boolean;
+      workspace_dir_exists: boolean;
+      assets_indexed: number;
+      scans_total: number;
+    };
+  };
+  execution_snapshot: {
+    providers: ProviderProfile[];
+    projects: Project[];
+    connectors: ConnectorDescriptor[];
+    training_jobs: JobRecord[];
+    remote_jobs: JobRecord[];
+    registry_models: ModelArtifact[];
+    actions: OpsAction[];
+    runs: OpsRun[];
+    artifacts: {
+      app_bundle_path: string;
+      app_bundle_exists: boolean;
+      dmg_path: string;
+      dmg_exists: boolean;
+      installer_path: string;
+      installer_exists: boolean;
+      uninstaller_path: string;
+      uninstaller_exists: boolean;
+      connectors_ready: number;
+    };
+  };
+};
+
 const API_BASE = (import.meta.env.VITE_ORQUESTRA_API_BASE || "").replace(/\/$/, "");
 
 function apiPath(path: string) {
@@ -584,6 +683,29 @@ export async function listConnectors() {
 
 export async function createDeployment(projectId: string, payload: { artifact_id: string; environment?: string; notes?: string }) {
   return request<Record<string, unknown>>(`/api/projects/${projectId}/deployments`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getOpsDashboard() {
+  return request<OpsDashboard>("/api/ops/dashboard");
+}
+
+export async function listOpsActions() {
+  return request<OpsAction[]>("/api/ops/actions");
+}
+
+export async function listOpsRuns() {
+  return request<OpsRun[]>("/api/ops/runs");
+}
+
+export async function getOpsRun(runId: string) {
+  return request<OpsRun>(`/api/ops/runs/${runId}`);
+}
+
+export async function createOpsRun(payload: { action_id: string }) {
+  return request<OpsRun>("/api/ops/runs", {
     method: "POST",
     body: JSON.stringify(payload)
   });

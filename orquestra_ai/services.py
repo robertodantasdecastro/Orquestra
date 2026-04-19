@@ -39,12 +39,20 @@ def seed_default_state(session: Session, settings: OrquestraSettings) -> None:
 def seed_default_project(session: Session, settings: OrquestraSettings) -> None:
     existing = session.exec(select(Project).where(Project.slug == settings.default_project_slug)).first()
     if existing:
+        if (
+            existing.name == "Local RAG Lab"
+            and existing.description == "Projeto padrao do control plane Orquestra AI."
+        ):
+            existing.name = "Orquestra Lab"
+            existing.description = "Projeto padrao do workspace Orquestra AI."
+            session.add(existing)
+            session.commit()
         return
     session.add(
         Project(
             slug=settings.default_project_slug,
-            name="Local RAG Lab",
-            description="Projeto padrao do control plane Orquestra AI.",
+            name="Orquestra Lab",
+            description="Projeto padrao do workspace Orquestra AI.",
             default_provider_id=settings.default_provider_id,
             default_model=settings.local_chat_model,
         )

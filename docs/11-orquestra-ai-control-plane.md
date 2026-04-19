@@ -34,7 +34,7 @@ Criar um ambiente unico para:
 - `kaggle_kernel`
 - `databricks_job`
 
-No ciclo atual, `EC2` entra como conector mais concreto. Os demais aparecem como stubs operacionais do catalogo, com readiness baseada em variaveis de ambiente.
+No ciclo atual, o catalogo de conectores ja existe, mas a execucao remota real segue adiada. `SageMaker`, `Kaggle` e `Databricks` aparecem como stubs operacionais do catalogo, com readiness baseada em variaveis de ambiente, e a integracao de `EC2` fica explicitamente para uma fase posterior.
 
 ## Fluxo padrao
 1. escolher projeto, provider e modelo no `Workspace UI`
@@ -47,7 +47,7 @@ No ciclo atual, `EC2` entra como conector mais concreto. Os demais aparecem como
 ## Operacao local
 ### API
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-orquestra.txt
@@ -56,13 +56,13 @@ pip install -r requirements-orquestra.txt
 
 ### Frontend
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 ./scripts/start_orquestra_web.sh
 ```
 
 ### Stack em background
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 ./scripts/start_orquestra_stack.sh
 ```
 
@@ -90,3 +90,4 @@ cd ~/Desenvolvimento/Orquestra
 - `claude-code/v1` deve seguir somente como referencia de UX e arquitetura, nao como base de codigo.
 - o `rag/llm.py` agora aceita providers do gateway sem quebrar o fluxo RAG antigo.
 - o frontend novo e `chat-first`, mas unifica memoria, RAG, modelos, jobs e configuracao no mesmo shell.
+- `training jobs` e `remote jobs` hoje registram intencao e metadados na aplicacao, mas ainda nao despacham execucao remota real.

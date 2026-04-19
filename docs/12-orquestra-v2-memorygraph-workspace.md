@@ -51,11 +51,19 @@ Concentrar em uma unica superficie:
 - `registry compare`
 - deploy por projeto
 
+Neste ciclo, `Train Ops` e `Registry` ja funcionam como superficie de catalogo, registro e comparacao. A execucao remota real dos conectores fica para uma fase posterior.
+
 ### Frontend / Desktop
 - `orquestra_web/src/App.tsx`
 - `orquestra_web/src/api.ts`
 - `orquestra_web/src/styles.css`
 - `orquestra_web/src-tauri/`
+
+O shell de UI agora organiza a operação em quatro superfícies principais:
+- `Operations Dashboard`
+- `Process Center`
+- `Memory Studio`
+- `Execution Center`
 
 ## MemoryGraph V2
 ### Camadas
@@ -105,10 +113,11 @@ Concentrar em uma unica superficie:
 - o shell desktop e fino;
 - a API segue local em `127.0.0.1:8808`;
 - a UI aponta para a API por `VITE_ORQUESTRA_API_BASE`.
+- web e desktop consomem o mesmo snapshot operacional e as mesmas ações gerenciadas.
 
 ### Comandos
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 ./scripts/start_orquestra_api.sh
 ./scripts/start_orquestra_web.sh
 ```
@@ -116,7 +125,7 @@ cd ~/Desenvolvimento/Orquestra
 ou:
 
 ```bash
-cd ~/Desenvolvimento/Orquestra
+cd /caminho/para/Orquestra
 ./scripts/start_orquestra_desktop.sh
 ```
 
@@ -124,11 +133,14 @@ cd ~/Desenvolvimento/Orquestra
 - `py_compile` do backend `Orquestra`
 - `npm run build` do frontend
 - `cargo check` do shell `Tauri`
+- `tauri build` com bundle `.app` e `.dmg`
 - smoke de `chat + summary + resume + transcript`
 - smoke de `attach-directory + workspace query + extract + preview + memorize`
+- validação de tipagem/integração da nova superfície operacional e dos scripts de instalação macOS
 
 ## Proximos passos
 1. ligar providers reais via `LiteLLM Proxy`
-2. fechar `tauri build`
+2. adicionar uma camada de testes automatizados alem do smoke script
 3. adicionar OCR e transcricao real opcional
-4. ligar `EC2` real no fluxo `Forge`
+4. amadurecer UX e readiness operacional de `Train Ops` e `Registry` sem depender ainda de execucao remota real
+5. decidir se a instalacao macOS evolui para `pkg` assinado ou segue script-first nesta fase

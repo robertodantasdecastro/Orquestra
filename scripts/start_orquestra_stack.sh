@@ -1,12 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="${HOME}/Desenvolvimento/Orquestra"
-if [ ! -d "${ROOT_DIR}" ]; then
-  ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fi
+ROOT_DIR="${ORQUESTRA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 cd "${ROOT_DIR}"
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
 
 tmux kill-session -t orquestra-api 2>/dev/null || true
 tmux kill-session -t orquestra-web 2>/dev/null || true

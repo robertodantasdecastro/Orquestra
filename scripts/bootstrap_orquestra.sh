@@ -26,8 +26,15 @@ if [ ! -d ".venv" ]; then
 fi
 
 source .venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
-pip install -r requirements-orquestra.txt
+
+if command -v uv >/dev/null 2>&1; then
+  echo "[orquestra] instalando dependências Python com uv"
+  uv pip install --python .venv/bin/python -r requirements-orquestra.txt
+else
+  echo "[orquestra] uv indisponível; usando pip"
+  python -m pip install --upgrade pip setuptools wheel
+  pip install -r requirements-orquestra.txt
+fi
 
 if [ ! -f ".env" ]; then
   cp .env.example .env
