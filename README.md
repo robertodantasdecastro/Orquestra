@@ -47,12 +47,16 @@ Plataforma macOS-first para orquestrar IA local e remota com chat multi-provider
 ## Instalação rápida
 ```bash
 cd ~/Desenvolvimento/Orquestra
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-orquestra.txt
-cd orquestra_web
-npm install
-cd ..
+./scripts/bootstrap_orquestra.sh
+```
+
+Preferência de runtime:
+- `python3.12` para evitar incompatibilidades do ecossistema Python mais novo durante bootstrap local.
+
+## Validação rápida
+```bash
+cd ~/Desenvolvimento/Orquestra
+./scripts/validate_orquestra.sh
 ```
 
 ## Rodar a API
@@ -87,6 +91,7 @@ cd ~/Desenvolvimento/Orquestra
 ```
 
 ## Guias
+- `docs/01-instalacao-validacao-macos.md`
 - `docs/11-orquestra-ai-control-plane.md`
 - `docs/12-orquestra-v2-memorygraph-workspace.md`
 
