@@ -54,6 +54,7 @@ import {
   resumeSession,
   streamChat
 } from "./api";
+import orquestraLogo from "./assets/orquestra-logo.svg";
 
 type ViewId = "dashboard" | "process" | "memory" | "execution" | "assistant" | "workspace" | "projects";
 
@@ -688,7 +689,9 @@ export default function App() {
     <div className="orquestra-shell">
       <aside className="rail">
         <div className="rail-brand">
-          <div className="brand-chip">OA</div>
+          <div className="brand-chip">
+            <img src={orquestraLogo} alt="Logo Orquestra AI" />
+          </div>
           <div>
             <strong>Orquestra AI</strong>
             <span>Dashboard + Processo + Memória + Execução</span>

@@ -16,18 +16,71 @@ LAUNCH_AGENTS_DIR="${HOME}/Library/LaunchAgents"
 LAUNCH_AGENT_LABEL="ai.orquestra.api"
 LAUNCH_AGENT_PLIST="${LAUNCH_AGENTS_DIR}/${LAUNCH_AGENT_LABEL}.plist"
 API_URL="http://127.0.0.1:${ORQUESTRA_API_PORT:-8808}/api/health"
+SKIP_BUILD="false"
+INSTALL_LAUNCH_AGENT="true"
 
-mkdir -p "${HOME}/Applications" "${SUPPORT_DIR}" "${LOG_DIR}" "${LAUNCH_AGENTS_DIR}"
+usage() {
+  cat <<USAGE
+Uso: ./scripts/install_orquestra_macos.sh [opcoes]
+
+Opcoes:
+  --skip-build         Usa o bundle Tauri ja existente em vez de recompilar.
+  --no-launch-agent   Instala apenas o app em ~/Applications, sem iniciar a API.
+  --install-dir PATH  Define o destino do .app. Padrao: ~/Applications/Orquestra AI.app.
+  -h, --help          Mostra esta ajuda.
+
+Variaveis uteis:
+  ORQUESTRA_ROOT          Raiz do repositorio.
+  ORQUESTRA_INSTALL_DIR   Destino do app.
+  ORQUESTRA_API_PORT      Porta da API local. Padrao: 8808.
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skip-build)
+      SKIP_BUILD="true"
+      shift
+      ;;
+    --no-launch-agent)
+      INSTALL_LAUNCH_AGENT="false"
+      shift
+      ;;
+    --install-dir)
+      INSTALL_DIR="${2:-}"
+      if [[ -z "${INSTALL_DIR}" ]]; then
+        echo "[orquestra-install] --install-dir exige um caminho" >&2
+        exit 2
+      fi
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "[orquestra-install] opcao invalida: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+mkdir -p "$(dirname "${INSTALL_DIR}")" "${SUPPORT_DIR}" "${LOG_DIR}" "${LAUNCH_AGENTS_DIR}"
 
 echo "[orquestra-install] root: ${ROOT_DIR}"
-echo "[orquestra-install] preparando ambiente local"
-"${ROOT_DIR}/scripts/bootstrap_orquestra.sh"
+if [[ "${SKIP_BUILD}" != "true" ]]; then
+  echo "[orquestra-install] preparando ambiente local"
+  "${ROOT_DIR}/scripts/bootstrap_orquestra.sh"
 
-echo "[orquestra-install] gerando app desktop"
-(
-  cd "${ROOT_DIR}/orquestra_web"
-  npm run desktop:build
-)
+  echo "[orquestra-install] gerando app desktop"
+  (
+    cd "${ROOT_DIR}/orquestra_web"
+    npm run desktop:build
+  )
+else
+  echo "[orquestra-install] usando bundle existente (--skip-build)"
+fi
 
 if [[ ! -d "${APP_SOURCE}" ]]; then
   echo "[orquestra-install] app bundle ausente: ${APP_SOURCE}" >&2
@@ -36,7 +89,16 @@ fi
 
 echo "[orquestra-install] instalando app em ${INSTALL_DIR}"
 rm -rf "${INSTALL_DIR}"
-cp -R "${APP_SOURCE}" "${INSTALL_DIR}"
+ditto "${APP_SOURCE}" "${INSTALL_DIR}"
+
+if [[ "${INSTALL_LAUNCH_AGENT}" != "true" ]]; then
+  echo
+  echo "[orquestra-install] instalação concluída sem LaunchAgent"
+  echo "  app: ${INSTALL_DIR}"
+  echo "  dados: ${SUPPORT_DIR}"
+  echo "  logs: ${LOG_DIR}"
+  exit 0
+fi
 
 cat > "${LAUNCH_AGENT_PLIST}" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -72,6 +134,7 @@ cat > "${LAUNCH_AGENT_PLIST}" <<PLIST
 </plist>
 PLIST
 
+plutil -lint "${LAUNCH_AGENT_PLIST}" >/dev/null
 launchctl bootout "gui/${UID}" "${LAUNCH_AGENT_PLIST}" >/dev/null 2>&1 || true
 launchctl bootstrap "gui/${UID}" "${LAUNCH_AGENT_PLIST}"
 launchctl kickstart -k "gui/${UID}/${LAUNCH_AGENT_LABEL}" >/dev/null 2>&1 || true

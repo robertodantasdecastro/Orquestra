@@ -2,6 +2,9 @@
 
 `Orquestra V2` e a evolucao do control plane do `Orquestra` para um workspace macOS-first com memoria estruturada, leitura multimodal de diretorios e shell desktop.
 
+Manual de uso completo:
+- `docs/02-manual-operacional.md`
+
 ## Objetivo
 Concentrar em uma unica superficie:
 - conversa multi-provider;
@@ -10,6 +13,7 @@ Concentrar em uma unica superficie:
 - consulta `RAG`;
 - operacao de jobs remotos;
 - registry e comparacao de modelos.
+- instalacao e desinstalacao macOS por scripts versionados.
 
 ## Blocos do V2
 ### Control Plane
@@ -65,6 +69,12 @@ O shell de UI agora organiza a operação em quatro superfícies principais:
 - `Memory Studio`
 - `Execution Center`
 
+Tambem existem superficies de trabalho para:
+- `Assistant Workspace`
+- `Workspace Browser`
+- `Projects`
+- `RAG Studio`, integrado ao contexto operacional.
+
 ## MemoryGraph V2
 ### Camadas
 1. `raw_transcript`
@@ -114,6 +124,7 @@ O shell de UI agora organiza a operação em quatro superfícies principais:
 - a API segue local em `127.0.0.1:8808`;
 - a UI aponta para a API por `VITE_ORQUESTRA_API_BASE`.
 - web e desktop consomem o mesmo snapshot operacional e as mesmas ações gerenciadas.
+- a marca vetorial fica em `assets/brand/orquestra-logo.svg` e `orquestra_web/src/assets/orquestra-logo.svg`.
 
 ### Comandos
 ```bash
@@ -144,3 +155,4 @@ cd /caminho/para/Orquestra
 3. adicionar OCR e transcricao real opcional
 4. amadurecer UX e readiness operacional de `Train Ops` e `Registry` sem depender ainda de execucao remota real
 5. decidir se a instalacao macOS evolui para `pkg` assinado ou segue script-first nesta fase
+6. avaliar assinatura e notarizacao quando houver distribuicao fora do ambiente local do usuario

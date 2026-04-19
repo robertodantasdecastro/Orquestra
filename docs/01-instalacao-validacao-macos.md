@@ -9,6 +9,8 @@ Subir o `Orquestra` localmente no Mac com o menor atrito possível e validar que
 - web e desktop mostram o mesmo dashboard operacional de serviços, processo, memória e execução;
 - chat, memória e `Workspace Multimodal` funcionam em smoke local.
 
+Para o manual completo de operação diária, consulte `docs/02-manual-operacional.md`.
+
 ## Pré-requisitos
 - macOS
 - `python3.12` preferencialmente
@@ -94,6 +96,17 @@ Esse instalador:
 - instala o bundle em `~/Applications`;
 - registra um `LaunchAgent` do usuário para a API local.
 
+Opções úteis:
+```bash
+./scripts/install_orquestra_macos.sh --skip-build
+./scripts/install_orquestra_macos.sh --no-launch-agent
+./scripts/install_orquestra_macos.sh --install-dir "$HOME/Applications/Orquestra AI.app"
+```
+
+O LaunchAgent instalado usa o label `ai.orquestra.api` e grava logs em:
+- `~/Library/Logs/Orquestra/api.stdout.log`
+- `~/Library/Logs/Orquestra/api.stderr.log`
+
 ### Desinstalação
 ```bash
 cd /caminho/para/Orquestra
@@ -103,6 +116,8 @@ cd /caminho/para/Orquestra
 Opcionalmente:
 - `./scripts/uninstall_orquestra_macos.sh --purge-data`
   remove também `~/Library/Application Support/Orquestra` e `~/Library/Logs/Orquestra`.
+
+Por padrão, o desinstalador remove app e LaunchAgent, mas preserva dados e logs do usuário.
 
 ## Endereços locais
 - API: `http://127.0.0.1:8808`
@@ -129,6 +144,7 @@ Para provider local:
 - a aplicação agora expõe um dashboard operacional unificado em web e desktop para gestão de runtime;
 - ações como bootstrap, validação, build web, build desktop, instalação e desinstalação podem ser disparadas pela superfície de execução;
 - o fluxo remoto de treino e conectores continua propositalmente adiado nesta fase.
+- a marca vetorial do Orquestra está em `assets/brand/` e já aparece na UI web/desktop.
 
 ## Observação importante
 O scanner multimodal do `Orquestra` é `inventory-first`.

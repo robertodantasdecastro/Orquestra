@@ -3,6 +3,7 @@
 `Orquestra AI` e o control plane unificado da aplicacao `Orquestra`. A proposta e concentrar `RAG`, memoria, leitura multimodal, jobs remotos e operacao de modelos em um workspace proprio, separado do `Local_RAG`.
 
 > Atualizacao: o estado mais novo da implementacao agora esta consolidado em `docs/12-orquestra-v2-memorygraph-workspace.md`, com `MemoryGraph V2`, `Workspace Multimodal` e shell desktop macOS.
+> Manual operacional completo: `docs/02-manual-operacional.md`.
 
 ## Objetivo
 Criar um ambiente unico para:
@@ -12,14 +13,19 @@ Criar um ambiente unico para:
 - preparar e acompanhar jobs remotos;
 - registrar artefatos, adapters e deploys por projeto.
 
+O control plane deve permanecer `local-first`: o Mac coordena a operacao, a API local responde em `127.0.0.1:8808`, a UI web/desktop consome os mesmos endpoints e os conectores remotos podem ficar indisponiveis sem travar chat, memoria, RAG ou workspace.
+
 ## Estrutura
 - backend: `orquestra_ai/`
 - frontend: `orquestra_web/`
+- marca: `assets/brand/`
 - scripts:
   - `scripts/start_orquestra_api.sh`
   - `scripts/start_orquestra_web.sh`
   - `scripts/build_orquestra_web.sh`
   - `scripts/start_orquestra_stack.sh`
+  - `scripts/install_orquestra_macos.sh`
+  - `scripts/uninstall_orquestra_macos.sh`
 
 ## Providers do v1
 - `lmstudio`
@@ -43,6 +49,14 @@ No ciclo atual, o catalogo de conectores ja existe, mas a execucao remota real s
 4. executar consultas no `RAG Studio`
 5. registrar artifacts e benchmarks no `Model Hub`
 6. preparar jobs remotos no `Train Ops`
+
+## Recursos principais
+- `Assistant Workspace`: conversa multi-provider com resumo, transcript e recall.
+- `Memory Studio`: memoria duravel, topicos, promocao e training candidates.
+- `Workspace Browser`: anexar diretorios, inventariar, extrair, abrir e memorizar ativos.
+- `RAG Studio`: consulta local ao engine RAG integrado ao gateway.
+- `Execution Center`: providers, conectores, jobs, registry, comparacao e acoes operacionais.
+- `Operations Dashboard`: status de servicos, processos, memoria, execucao e artefatos macOS.
 
 ## Operacao local
 ### API

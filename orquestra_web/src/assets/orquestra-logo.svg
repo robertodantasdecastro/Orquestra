@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Orquestra AI logo</title>
+  <desc id="desc">Marca vetorial do Orquestra AI com orbitas, nucleo local-first e pontos de servicos conectados.</desc>
+  <defs>
+    <linearGradient id="bg" x1="82" y1="46" x2="430" y2="466" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0B1724"/>
+      <stop offset="0.52" stop-color="#061521"/>
+      <stop offset="1" stop-color="#020811"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="112" y1="96" x2="410" y2="414" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#64E2FF"/>
+      <stop offset="0.5" stop-color="#43A8FF"/>
+      <stop offset="1" stop-color="#6DFFC6"/>
+    </linearGradient>
+    <linearGradient id="core" x1="197" y1="170" x2="322" y2="334" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#EAF9FF"/>
+      <stop offset="0.48" stop-color="#63DAFF"/>
+      <stop offset="1" stop-color="#6DFFC6"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.19 0 0 0 0 0.83 0 0 0 0 1 0 0 0 0.58 0"/>
+      <feBlend in="SourceGraphic" mode="screen"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="118" fill="url(#bg)"/>
+  <path d="M112 287c34 85 134 126 223 91 89-35 134-132 100-217" fill="none" stroke="#113552" stroke-width="26" stroke-linecap="round"/>
+  <path d="M398 125c-56-48-143-58-210-17-61 38-91 108-78 176" fill="none" stroke="#0E2A40" stroke-width="26" stroke-linecap="round"/>
+  <path d="M108 286c37 83 134 121 222 86 76-30 121-103 113-178" fill="none" stroke="url(#cyan)" stroke-width="18" stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M397 122c-55-45-137-53-201-13-58 37-87 104-75 171" fill="none" stroke="url(#cyan)" stroke-width="18" stroke-linecap="round" opacity="0.74"/>
+  <circle cx="257" cy="256" r="82" fill="#071421" stroke="url(#cyan)" stroke-width="14"/>
+  <path d="M221 304V205h31c33 0 55 20 55 49 0 30-22 50-55 50h-31Zm23-22h10c18 0 30-11 30-28 0-16-12-27-30-27h-10v55Z" fill="url(#core)"/>
+  <path d="M199 256c0-42 31-73 74-73 19 0 36 6 49 18l-16 18c-8-8-19-12-32-12-29 0-50 20-50 49s21 49 50 49c13 0 24-4 33-12l15 18c-13 12-30 18-49 18-43 0-74-31-74-73Z" fill="#DFF8FF" opacity="0.92"/>
+  <circle cx="404" cy="128" r="24" fill="#6DFFC6" filter="url(#glow)"/>
+  <circle cx="108" cy="286" r="20" fill="#64E2FF" filter="url(#glow)"/>
+  <circle cx="404" cy="128" r="8" fill="#05111D"/>
+  <circle cx="108" cy="286" r="7" fill="#05111D"/>
+  <circle cx="352" cy="392" r="12" fill="#64E2FF" opacity="0.9"/>
+  <circle cx="154" cy="141" r="10" fill="#6DFFC6" opacity="0.78"/>
+</svg>
