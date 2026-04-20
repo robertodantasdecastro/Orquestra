@@ -12,6 +12,8 @@ from .memory_graph import MemoryGraphService
 from .models import MemoryRecord
 from .rag_memory import RagMemoryService
 
+VALID_SELECTOR_MODES = {"hybrid", "lexical"}
+
 
 def _tokens(text: str) -> set[str]:
     return {token for token in re.findall(r"[a-zA-Z0-9_À-ÿ-]{3,}", text.lower())}
@@ -34,6 +36,11 @@ def _safe_json(raw: str | None, fallback: Any) -> Any:
         return fallback
 
 
+def normalize_selector_mode(raw_mode: str | None) -> str:
+    normalized = (raw_mode or "hybrid").strip().lower()
+    return normalized if normalized in VALID_SELECTOR_MODES else "hybrid"
+
+
 class MemoryRecallService:
     def __init__(self, settings: OrquestraSettings) -> None:
         self.settings = settings
@@ -51,7 +58,9 @@ class MemoryRecallService:
         memory_kinds: list[str] | None = None,
         preset: str | None = None,
         limit: int = 6,
+        selector_mode: str = "hybrid",
     ) -> dict[str, Any]:
+        normalized_selector = normalize_selector_mode(selector_mode)
         lexical = self._lexical_shortlist(
             session,
             query=query,
@@ -61,6 +70,20 @@ class MemoryRecallService:
             memory_kinds=memory_kinds,
             limit=max(limit * 2, limit),
         )
+        lexical = [
+            item | {"metadata": item.get("metadata", {}) | {"selector_mode": normalized_selector}}
+            for item in lexical
+        ]
+        if normalized_selector == "lexical":
+            return {
+                "items": lexical[:limit],
+                "status": "ok",
+                "selector_mode": normalized_selector,
+                "vector_status": "skipped",
+                "vector_error": None,
+                "collection_name": "orquestra_memory_v1",
+            }
+
         vector = self.rag_memory.recall(
             query,
             session=session,
@@ -89,14 +112,14 @@ class MemoryRecallService:
                 "memory_kind": item.get("memory_kind") or (current.get("memory_kind") if current else "project"),
                 "source": item.get("source") or (current.get("source") if current else ""),
                 "score": score,
-                "metadata": merged_metadata | {"selector_mode": "hybrid"},
+                "metadata": merged_metadata | {"selector_mode": normalized_selector},
             }
 
         items = sorted(combined.values(), key=lambda row: float(row.get("score", 0.0)), reverse=True)[:limit]
         return {
             "items": items,
             "status": "ok" if vector.get("status") == "ok" else "hybrid_fallback",
-            "selector_mode": "hybrid",
+            "selector_mode": normalized_selector,
             "vector_status": vector.get("status"),
             "vector_error": vector.get("error"),
             "collection_name": vector.get("collection_name"),

@@ -8,11 +8,12 @@ from sqlmodel import Session, select
 
 from rag.common import RagPaths
 from rag.graph import RagWorkflow
+from rag.vectorstore import query_collection
 
 from .config import OrquestraSettings
 from .gateway import GatewayProvider
 from .memory_graph import MemoryGraphService
-from .memory_recall import MemoryRecallService
+from .memory_recall import MemoryRecallService, normalize_selector_mode
 from .models import (
     JobRecord,
     MemoryManifestEntry,
@@ -39,6 +40,10 @@ from .models import (
 from .planner import PlannerService
 from .rag_memory import RagMemoryService
 from .runtime_state import runtime_backup_dir, runtime_install_dir
+from .session_profile import get_session_profile, profile_prompt_section
+from .workspace import WorkspaceService
+
+DEFAULT_SOURCE_COLLECTIONS = ("knowledge_base", "security_base")
 
 
 def seed_default_state(session: Session, settings: OrquestraSettings) -> None:
@@ -190,11 +195,22 @@ class LocalRagEngine:
         self.memory_graph = MemoryGraphService(settings)
         self.memory_recall = MemoryRecallService(settings)
         self.planner = PlannerService()
+        self.workspace_service = WorkspaceService(settings)
 
     def query(self, session: Session, options: RagQueryOptions, *, project_id: str | None = None) -> dict[str, Any]:
         rag_memory_payload: dict[str, Any] = {"items": [], "status": "disabled", "collection_name": "orquestra_memory_v1"}
-        external_memory_context = ""
+        selector_mode = normalize_selector_mode(options.memory_selector_mode)
+        context_sections: list[tuple[str, str]] = []
+        workspace_context: dict[str, Any] = {"items": [], "context": "", "citations": []}
+        legacy_sources: list[dict[str, Any]] = []
         session_snapshot: dict[str, Any] | None = None
+        chat_session = None
+        if options.session_id:
+            from .models import ChatSession
+
+            chat_session = session.get(ChatSession, options.session_id)
+        if chat_session is not None:
+            context_sections.append(("Perfil da sessão", profile_prompt_section(get_session_profile(chat_session))))
         if options.memory_enabled:
             rag_memory_payload = self.memory_recall.recall(
                 session,
@@ -203,32 +219,48 @@ class LocalRagEngine:
                 session_id=options.session_id,
                 scopes=options.memory_scopes or None,
                 limit=6,
+                selector_mode=selector_mode,
             )
-            external_memory_context = self.memory_recall.format_context(
+            memory_context = self.memory_recall.format_context(
                 rag_memory_payload.get("items", []),
-                max_chars=min(max(options.max_context_chars, 1000), 9000),
+                max_chars=min(max(options.max_context_chars // 3, 1000), 3500),
             )
-        if options.session_id and options.compaction_enabled:
-            from .models import ChatSession
-
-            chat_session = session.get(ChatSession, options.session_id)
-            if chat_session is not None:
-                session_snapshot = self.memory_graph.build_context_snapshot(
-                    session,
-                    chat_session,
-                    context_budget=options.context_budget or options.max_context_chars,
-                )
-                snapshot_text = session_snapshot.get("context_text", "")
-                if snapshot_text:
-                    external_memory_context = "\n\n".join(
-                        part for part in (snapshot_text, external_memory_context) if part
-                    )
-                if options.task_context_enabled:
-                    planner_context = self.planner.task_prompt_context(session, chat_session.id)
-                    if planner_context:
-                        external_memory_context = "\n\n".join(
-                            part for part in (f"Tarefas ativas:\n{planner_context}", external_memory_context) if part
-                        )
+            if memory_context:
+                context_sections.append(("Memória relevante", memory_context))
+        if chat_session is not None and options.compaction_enabled:
+            session_snapshot = self.memory_graph.build_context_snapshot(
+                session,
+                chat_session,
+                context_budget=options.context_budget or options.max_context_chars,
+            )
+            snapshot_text = str(session_snapshot.get("context_text", "")).strip()
+            if snapshot_text:
+                context_sections.append(("Snapshot compacto", snapshot_text))
+            if options.planner_enabled and options.task_context_enabled:
+                planner_context = self.planner.task_prompt_context(session, chat_session.id)
+                if planner_context:
+                    context_sections.append(("Planner ativo", planner_context))
+        if options.include_workspace:
+            workspace_context = self.workspace_service.build_context_snippet(
+                session,
+                project_id=project_id,
+                prompt=options.question,
+                include_sources=options.include_sources,
+                limit=4,
+            )
+            if workspace_context.get("context"):
+                context_sections.append(("Workspace/fontes", str(workspace_context["context"])))
+        if options.include_sources:
+            legacy_sources = collect_legacy_rag_sources(
+                self.settings,
+                question=options.question,
+                collection_names=[options.collection_name] if options.collection_name else list(DEFAULT_SOURCE_COLLECTIONS),
+                limit=4,
+            )
+            legacy_context = format_retrieved_sources(legacy_sources, max_chars=min(max(options.max_context_chars // 3, 1000), 3500))
+            if legacy_context:
+                context_sections.append(("RAG legado", legacy_context))
+        external_memory_context = build_context_block(context_sections, max_chars=options.max_context_chars)
         workflow = RagWorkflow(self.paths, mock_llm=options.mock_llm, provider_id=options.provider_id)
         result = workflow.invoke(
             question=options.question,
@@ -243,6 +275,10 @@ class LocalRagEngine:
         )
         result["rag_memory"] = rag_memory_payload
         result["session_snapshot"] = session_snapshot
+        result["workspace_context"] = workspace_context
+        result["legacy_sources"] = legacy_sources
+        result["selector_mode"] = selector_mode
+        result["context_sections"] = [{"title": title, "content": content} for title, content in context_sections if content]
         if options.remember and options.session_id and result.get("answer"):
             self.memory_graph.create_training_candidate(
                 session,
@@ -277,6 +313,64 @@ def ensure_runtime_dirs(settings: OrquestraSettings) -> None:
     memory_graph.paths.ensure()
     if settings.database_path is not None:
         settings.database_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def collect_legacy_rag_sources(
+    settings: OrquestraSettings,
+    *,
+    question: str,
+    collection_names: list[str] | None = None,
+    limit: int = 4,
+) -> list[dict[str, Any]]:
+    paths = RagPaths.load(settings.workspace_root)
+    names = [name for name in (collection_names or list(DEFAULT_SOURCE_COLLECTIONS)) if isinstance(name, str) and name.strip()]
+    if not question.strip() or not names:
+        return []
+    hits: list[dict[str, Any]] = []
+    for collection_name in names[:2]:
+        try:
+            chunks = query_collection(paths, collection_name, question, top_k=max(limit, 2))
+        except Exception:
+            continue
+        for chunk in chunks:
+            hits.append(
+                {
+                    "channel": collection_name,
+                    "source": chunk.metadata.get("source_path") or chunk.metadata.get("source_url") or chunk.metadata.get("source", ""),
+                    "title": chunk.metadata.get("title") or chunk.metadata.get("rule_id") or chunk.metadata.get("document_id") or collection_name,
+                    "excerpt": chunk.text,
+                    "distance": float(chunk.distance) if chunk.distance is not None else None,
+                }
+            )
+    return sorted(hits, key=lambda item: item["distance"] if item["distance"] is not None else 10_000.0)[:limit]
+
+
+def format_retrieved_sources(
+    items: list[dict[str, Any]],
+    *,
+    max_chars: int = 4000,
+) -> str:
+    rendered: list[str] = []
+    total = 0
+    for item in items:
+        descriptor = item.get("source") or item.get("title") or item.get("channel") or "source"
+        line = f"- [{item.get('channel', 'source')}] {descriptor}: {str(item.get('excerpt', '')).strip()}".strip()
+        if total + len(line) > max_chars:
+            break
+        rendered.append(line)
+        total += len(line)
+    return "\n".join(rendered)
+
+
+def build_context_block(sections: list[tuple[str, str]], *, max_chars: int = 9000) -> str:
+    rendered = "\n\n".join(
+        f"{title}:\n{content.strip()}"
+        for title, content in sections
+        if title and content and content.strip()
+    ).strip()
+    if len(rendered) <= max_chars:
+        return rendered
+    return rendered[: max_chars - 3].rstrip() + "..."
 
 
 def model_artifact_to_dict(artifact: ModelArtifact) -> dict[str, Any]:

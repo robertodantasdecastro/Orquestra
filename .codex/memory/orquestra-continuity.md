@@ -1,0 +1,24 @@
+# Orquestra Continuity
+
+- Branch atual: `codex/orquestra-paridade-claudecodes-v1`
+- Ultimo commit: `5ac998f`
+- Etapa concluida: `Etapa 1 concluida`
+- Estado do worktree: `Pronto para checkpoint Git da Etapa 1`
+- Validacoes executadas:
+  - `source .venv/bin/activate && python -m py_compile orquestra_ai/*.py`
+  - `source .venv/bin/activate && PYTHONPATH=. pytest -q tests/test_memory_hybrid.py tests/test_compaction_planner.py tests/test_workflow_engine.py`
+  - `smoke manual Stage 1: include_workspace + include_sources + memory_selector_mode=lexical`
+  - `git diff --check`
+- Pendencias abertas:
+  - expor `blocked_by` e `blocks` na UI do planner
+  - mostrar `next_steps` como bloco operacional no painel lateral
+  - vincular tarefa e workflow na UX
+- Proxima acao exata: `Fechar a Etapa 2 no frontend e na API do planner, validar UI + backend e criar novo checkpoint`
+- Arquivos principais tocados:
+  - `orquestra_ai/app.py`
+  - `orquestra_ai/services.py`
+  - `orquestra_ai/workspace.py`
+  - `orquestra_ai/memory_recall.py`
+  - `.codex/memory/orquestra-continuity.md`
+- Comando de retomada:
+  - `Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.`

@@ -17,7 +17,7 @@ from .db import build_engine, init_database
 from .gateway import GatewayLlmError, OrquestraGateway
 from .memory_candidates import MemoryCandidateExtractor
 from .memory_graph import MemoryGraphService
-from .memory_recall import MemoryRecallService
+from .memory_recall import MemoryRecallService, normalize_selector_mode
 from .memory_types import default_memory_kind_for_scope, normalize_memory_kind
 from .models import (
     ChatMessage,
@@ -48,8 +48,11 @@ from .runtime_state import collect_runtime_state, resolve_app_version
 from .services import (
     LocalRagEngine,
     RagQueryOptions,
+    build_context_block,
+    collect_legacy_rag_sources,
     compaction_state_to_dict,
     ensure_runtime_dirs,
+    format_retrieved_sources,
     job_record_to_dict,
     list_gateway_providers,
     memory_review_candidate_to_dict,
@@ -874,6 +877,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         effective_project_id = chat_session.project_id or payload.project_id
         memory_scopes = payload.memory_scopes or list(memory_policy.get("scopes", []))
         max_context_chars = payload.max_context_chars or int(rag_policy.get("max_context_chars", 9000) or 9000)
+        planner_enabled = payload.planner_enabled if payload.planner_enabled is not None else True
         memory_enabled = (
             payload.memory_enabled
             if payload.memory_enabled is not None
@@ -881,6 +885,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         )
         include_workspace = payload.include_workspace if payload.include_workspace is not None else bool(rag_policy.get("include_workspace", True))
         include_sources = payload.include_sources if payload.include_sources is not None else bool(rag_policy.get("include_sources", True))
+        selector_mode = normalize_selector_mode(payload.memory_selector_mode)
         context_snapshot = (
             memory_graph.build_context_snapshot(
                 session,
@@ -892,10 +897,10 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         )
         planner_context = (
             planner.task_prompt_context(session, chat_session.id)
-            if payload.task_context_enabled is not False
+            if planner_enabled and payload.task_context_enabled is not False
             else ""
         )
-        recall_result = {"items": [], "status": "disabled", "collection_name": "orquestra_memory_v1", "selector_mode": "hybrid"}
+        recall_result = {"items": [], "status": "disabled", "collection_name": "orquestra_memory_v1", "selector_mode": selector_mode}
         if memory_enabled:
             recall_result = memory_recall.recall(
                 session,
@@ -904,18 +909,11 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 session_id=chat_session.id,
                 scopes=memory_scopes,
                 limit=int(rag_policy.get("top_k_memory", 6) or 6),
+                selector_mode=selector_mode,
             )
         recalled = list(recall_result.get("items", []))
-        memory_context = "\n".join(
-            part
-            for part in (
-                str(context_snapshot.get("context_text", "")).strip(),
-                memory_recall.format_context(recalled, max_chars=max_context_chars // 2),
-            )
-            if part
-        ).strip()
-        if len(memory_context) > max_context_chars:
-            memory_context = memory_context[: max_context_chars - 3].rstrip() + "..."
+        snapshot_context = str(context_snapshot.get("context_text", summary.current_state)).strip()
+        memory_context = memory_recall.format_context(recalled, max_chars=max(max_context_chars // 3, 1200))
         memory_citations = [
             {
                 "channel": item.get("metadata", {}).get("channel", "memory") if isinstance(item.get("metadata"), dict) else "memory",
@@ -925,6 +923,42 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             }
             for item in recalled
         ]
+        workspace_bundle = (
+            workspace_service.build_context_snippet(
+                session,
+                project_id=effective_project_id,
+                prompt=payload.message,
+                include_sources=include_sources,
+                limit=int(rag_policy.get("top_k_workspace", 4) or 4),
+            )
+            if include_workspace
+            else {"items": [], "context": "", "citations": []}
+        )
+        workspace_context = str(workspace_bundle.get("context", "")).strip()
+        workspace_citations = list(workspace_bundle.get("citations", []))
+        legacy_sources = (
+            collect_legacy_rag_sources(
+                app_settings,
+                question=payload.message,
+                collection_names=list(rag_policy.get("collections", [])) or None,
+                limit=int(rag_policy.get("top_k_sources", 4) or 4),
+            )
+            if include_sources
+            else []
+        )
+        legacy_sources_context = format_retrieved_sources(legacy_sources, max_chars=max(max_context_chars // 3, 1200))
+        prompt_context = build_context_block(
+            [
+                ("Perfil da sessão", profile_prompt_section(profile)),
+                ("Snapshot compacto", snapshot_context),
+                ("Planner ativo", planner_context if planner_enabled else ""),
+                ("Memórias relevantes", memory_context),
+                ("Workspace/fontes", workspace_context),
+                ("RAG legado", legacy_sources_context),
+            ],
+            max_chars=max_context_chars,
+        )
+        contextual_citations = memory_citations + workspace_citations + legacy_sources
 
         gateway = OrquestraGateway(list_gateway_providers(session), mock=payload.mock_response)
         user_message = ChatMessage(
@@ -937,8 +971,12 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "rag_memory_recall": recall_result,
                     "recalled_memories": recalled,
                     "compaction_state": context_snapshot.get("compaction_state", {}),
+                    "planner_enabled": planner_enabled,
+                    "memory_selector_mode": selector_mode,
                     "include_workspace": include_workspace,
                     "include_sources": include_sources,
+                    "workspace_context": workspace_bundle,
+                    "legacy_sources": legacy_sources,
                 },
                 ensure_ascii=False,
             ),
@@ -963,12 +1001,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                         "content": "\n\n".join(
                             part
                             for part in (
-                                f"Perfil da sessao:\n{profile_prompt_section(profile)}",
-                                f"Resumo da sessao:\n{context_snapshot.get('context_text', summary.current_state)}"
-                                if context_snapshot.get("context_text", summary.current_state)
-                                else "",
-                                f"Tarefas ativas:\n{planner_context}" if planner_context else "",
-                                f"Memorias relevantes:\n{memory_context}" if memory_context else "",
+                                prompt_context,
                                 "Politica operacional: use memorias e RAG como apoio, mas nao promova nada para dataset sem aprovacao explicita.",
                                 f"Mensagem atual:\n{payload.message}",
                             )
@@ -998,8 +1031,11 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "session_profile": profile,
                     "memory_recall": recalled,
                     "rag_memory_recall": recall_result,
-                    "citations": memory_citations,
+                    "citations": contextual_citations,
                     "compaction_state": context_snapshot.get("compaction_state", {}),
+                    "workspace_context": workspace_bundle,
+                    "legacy_sources": legacy_sources,
+                    "memory_selector_mode": selector_mode,
                 },
                 ensure_ascii=False,
             ),
@@ -1015,14 +1051,17 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             metadata={"kind": "assistant_turn", "usage": _compact_usage(response.usage)},
         )
         updated_summary = memory_graph.build_session_summary(session, chat_session)
-        planner_snapshot, planner_tasks = planner.rebuild_from_session(session, chat_session=chat_session, summary=updated_summary)
+        planner_snapshot = planner.get_snapshot(session, chat_session.id)
+        planner_tasks = planner.list_tasks(session, chat_session.id)
+        if planner_enabled:
+            planner_snapshot, planner_tasks = planner.rebuild_from_session(session, chat_session=chat_session, summary=updated_summary)
         candidates = candidate_extractor.extract_from_chat_turn(
             session,
             chat_session=chat_session,
             profile=profile,
             user_message=user_message,
             assistant_message=assistant_message,
-            citations=memory_citations,
+            citations=contextual_citations,
             recalled=recalled,
         )
         session.commit()
@@ -1044,7 +1083,11 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 "summary",
                 {
                     "current_state": updated_summary.current_state,
-                    "next_steps": "\n".join(f"- {item}" for item in json.loads(planner_snapshot.next_steps_json or "[]")),
+                    "next_steps": (
+                        "\n".join(f"- {item}" for item in json.loads(planner_snapshot.next_steps_json or "[]"))
+                        if planner_snapshot is not None
+                        else str(json.loads(updated_summary.sections_json or "{}").get("next_steps", ""))
+                    ),
                     "updated_at": updated_summary.updated_at.isoformat(),
                     "planner_task_count": len(planner_tasks),
                 },
@@ -1058,6 +1101,8 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "latency_seconds": response.latency_seconds,
                     "memory_candidates_created": len(candidates),
                     "memory_recall_count": len(recalled),
+                    "workspace_context_count": len(workspace_bundle.get("items", [])),
+                    "legacy_source_count": len(legacy_sources),
                 },
             )
 

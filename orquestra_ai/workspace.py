@@ -397,6 +397,74 @@ class WorkspaceService:
             "assets": extracted,
         }
 
+    def build_context_snippet(
+        self,
+        session: Session,
+        *,
+        project_id: str | None,
+        prompt: str,
+        include_sources: bool = True,
+        limit: int = 4,
+    ) -> dict[str, Any]:
+        statement = select(WorkspaceScan).where(WorkspaceScan.status == "ready")
+        if project_id:
+            statement = statement.where(WorkspaceScan.project_id == project_id)
+        scan = session.exec(statement.order_by(WorkspaceScan.updated_at.desc()).limit(1)).first()
+        if scan is None and project_id:
+            scan = session.exec(
+                select(WorkspaceScan).where(WorkspaceScan.status == "ready").order_by(WorkspaceScan.updated_at.desc()).limit(1)
+            ).first()
+        if scan is None:
+            return {"scan_id": None, "root_path": None, "items": [], "context": "", "citations": []}
+
+        assets = session.exec(select(WorkspaceAsset).where(WorkspaceAsset.scan_id == scan.id)).all()
+        if not assets:
+            return {"scan_id": scan.id, "root_path": scan.root_path, "items": [], "context": "", "citations": []}
+
+        selected = self._rank_assets(prompt, assets)[: max(limit, 1)]
+        extracted: list[dict[str, Any]] = []
+        for item in selected:
+            asset = next((candidate for candidate in assets if candidate.id == item["asset_id"]), None)
+            if asset is None:
+                continue
+            if asset.extraction_state != "ready":
+                self.extract_asset(session, asset, prompt_hint=prompt)
+            extracted.append(
+                {
+                    "asset_id": asset.id,
+                    "title": asset.title,
+                    "relative_path": asset.relative_path,
+                    "asset_kind": asset.asset_kind,
+                    "summary_excerpt": asset.summary_excerpt,
+                    "score": item["score"],
+                    "metadata": json.loads(asset.metadata_json or "{}"),
+                }
+            )
+
+        context_parts: list[str] = []
+        citations: list[dict[str, Any]] = []
+        for item in extracted:
+            summary = item["summary_excerpt"] or item["title"]
+            descriptor = item["relative_path"] if include_sources else item["title"]
+            context_parts.append(f"[{item['asset_kind'].upper()}] {descriptor}\n{summary}".strip())
+            citations.append(
+                {
+                    "channel": "workspace",
+                    "source": item["relative_path"] if include_sources else "",
+                    "title": item["title"],
+                    "asset_id": item["asset_id"],
+                    "scan_id": scan.id,
+                }
+            )
+
+        return {
+            "scan_id": scan.id,
+            "root_path": scan.root_path,
+            "items": extracted,
+            "context": "\n\n".join(part for part in context_parts if part),
+            "citations": citations,
+        }
+
     def memorize_asset(
         self,
         session: Session,
