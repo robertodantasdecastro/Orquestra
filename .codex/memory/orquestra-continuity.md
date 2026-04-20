@@ -1,20 +1,35 @@
 # Orquestra Continuity
 
 - Branch atual: `codex/orquestra-paridade-claudecodes-v1`
-- Ultimo commit: `9f5efe3`
-- Etapa concluida: `Etapa 2 concluida`
-- Estado do worktree: `Pronto para checkpoint Git da Etapa 2`
+- Ultimo commit: `04f35dd`
+- Etapa concluida: `Etapa 3 concluida`
+- Estado do worktree: `Pronto para checkpoint Git da Etapa 3`
 - Validacoes executadas:
-  - `cd orquestra_web && ./node_modules/.bin/vitest run --environment jsdom && ./node_modules/.bin/tsc -b`
-  - `smoke manual Stage 2: patch de blocked_by via API do planner`
+  - `source .venv/bin/activate && PYTHONPATH=. pytest -q tests/test_workflow_engine.py`
+  - `cd orquestra_web && ./node_modules/.bin/vitest run --environment jsdom`
+  - `cd orquestra_web && ./node_modules/.bin/tsc -b`
+  - `smoke manual Stage 3: workflow feliz, falha intermediaria com saida parcial e cancelamento`
   - `git diff --check`
 - Pendencias abertas:
-  - exibir melhor `output_path`, artefatos e vinculo sessao/tarefa no `Execution Center`
-  - mostrar estados finais e saida parcial do workflow com mais clareza
-  - confirmar retomada visual apos restart
-- Proxima acao exata: `Fechar a Etapa 3 no frontend do Execution Center e no detalhamento de workflow, validar workflows e criar novo checkpoint`
+  - adicionar testes dedicados para cancelamento, restart recovery e falha parcial do workflow
+  - cobrir `auto compact`, fallback sem Chroma/embeddings e dependencias do planner
+  - expandir testes de UI para planner com dependencias e `Execution Center` com artefatos
+- Proxima acao exata: `Implementar a Etapa 4: ampliar a suite de testes backend/UI, rodar validate_orquestra.sh e criar novo checkpoint`
 - Arquivos principais tocados:
+  - `orquestra_ai/workflow_engine.py`
   - `orquestra_web/src/App.tsx`
+  - `orquestra_web/src/api.ts`
   - `.codex/memory/orquestra-continuity.md`
+- O que mudou:
+  - `Execution Center` agora exibe status final humanizado, vinculo com task/sessao, `log_path`, `output_path` e `output_preview`
+  - o backend do workflow persiste artefatos estruturados para sucesso, falha parcial e cancelamento
+  - o detalhe do workflow mostra recuperacao apos restart quando `recovered_after_restart` estiver presente no metadata
+- O que validar:
+  - `output_preview.status` coerente em `succeeded`, `failed` e `cancelled`
+  - detalhes do run mostram artefato e contexto task/sessao no frontend
+  - restart recovery continua aparecendo visualmente quando houver run interrompido
+- Caminhos de logs/artefatos:
+  - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.log`
+  - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.json`
 - Comando de retomada:
   - `Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.`

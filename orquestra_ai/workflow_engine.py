@@ -207,6 +207,14 @@ class WorkflowEngine:
                         step.status = "cancelled"
                         step.finished_at = utc_now()
                         session.add(step)
+                        self._write_outputs(
+                            Path(run.output_path),
+                            {
+                                "status": "cancelled",
+                                "cancelled_at": utc_now().isoformat(),
+                                "steps": outputs,
+                            },
+                        )
                         run.status = "cancelled"
                         run.finished_at = utc_now()
                         session.add(run)
@@ -218,6 +226,17 @@ class WorkflowEngine:
                         step.output_json = json.dumps({"error": str(exc)}, ensure_ascii=False)
                         step.finished_at = utc_now()
                         session.add(step)
+                        outputs.append({"step": step.label, "output": {"error": str(exc)}})
+                        self._write_outputs(
+                            Path(run.output_path),
+                            {
+                                "status": "failed",
+                                "failed_at": utc_now().isoformat(),
+                                "failed_step": step.label,
+                                "error": str(exc),
+                                "steps": outputs,
+                            },
+                        )
                         run.status = "failed"
                         run.finished_at = utc_now()
                         run.metadata_json = json.dumps(
@@ -242,7 +261,14 @@ class WorkflowEngine:
                     session.add(run)
                     session.commit()
 
-                Path(run.output_path).write_text(json.dumps(outputs, ensure_ascii=False, indent=2), encoding="utf-8")
+                self._write_outputs(
+                    Path(run.output_path),
+                    {
+                        "status": "succeeded",
+                        "finished_at": utc_now().isoformat(),
+                        "steps": outputs,
+                    },
+                )
                 self._append_run_log(Path(run.log_path), "[workflow] status=succeeded")
                 run.status = "succeeded"
                 run.progress = 1.0
@@ -434,10 +460,19 @@ class WorkflowEngine:
         steps = session.exec(select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id).order_by(WorkflowStepRun.step_index)).all()
         payload = workflow_run_to_dict(run, steps=steps)
         log_path = Path(run.log_path)
+        output_path = Path(run.output_path)
         if log_path.exists():
             payload["log_tail"] = log_path.read_text(encoding="utf-8", errors="ignore")[-6000:]
         else:
             payload["log_tail"] = ""
+        payload["output_exists"] = output_path.exists()
+        if output_path.exists():
+            try:
+                payload["output_preview"] = json.loads(output_path.read_text(encoding="utf-8"))
+            except Exception:
+                payload["output_preview"] = {"raw": output_path.read_text(encoding="utf-8", errors="ignore")[-6000:]}
+        else:
+            payload["output_preview"] = None
         return payload
 
     @staticmethod
@@ -457,6 +492,11 @@ class WorkflowEngine:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(line.rstrip() + "\n")
+
+    @staticmethod
+    def _write_outputs(path: Path, payload: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @staticmethod
     def _pid_alive(pid: int) -> bool:

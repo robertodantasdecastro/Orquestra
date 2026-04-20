@@ -331,6 +331,8 @@ export type WorkflowRun = {
   finished_at?: string | null;
   steps: WorkflowStepRun[];
   log_tail?: string;
+  output_exists?: boolean;
+  output_preview?: Record<string, unknown> | null;
 };
 
 export type WorkspaceScan = {

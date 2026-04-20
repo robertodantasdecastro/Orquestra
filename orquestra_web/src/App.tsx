@@ -168,6 +168,25 @@ function compactText(value: string, limit = 180) {
   return `${normalized.slice(0, limit - 1)}…`;
 }
 
+function workflowStatusLabel(status?: string | null) {
+  switch (status) {
+    case "succeeded":
+      return "Concluído com sucesso";
+    case "failed":
+      return "Falhou com saída parcial";
+    case "cancelled":
+      return "Cancelado";
+    case "interrupted":
+      return "Interrompido e recuperado após restart";
+    case "running":
+      return "Em execução";
+    case "pending":
+      return "Na fila";
+    default:
+      return status || "idle";
+  }
+}
+
 function serviceTone(status: string, ready: boolean) {
   if (ready && status === "online") return "online";
   if (ready) return "ready";
@@ -1636,6 +1655,7 @@ export default function App() {
                           <strong>{run.workflow_name}</strong>
                           <span>{run.status}</span>
                           <small>{run.task_id ? `task:${sessionTaskMap.get(run.task_id)?.subject || run.task_id.slice(0, 8)}` : "sem task"}</small>
+                          <small>{run.output_exists ? "com artefato" : "sem artefato"}</small>
                           <small>{Math.round((run.progress ?? 0) * 100)}%</small>
                         </button>
                       ))}
@@ -1646,11 +1666,22 @@ export default function App() {
                           <strong>{step.step_index + 1}</strong>
                           <span>{step.label}</span>
                           <small>{step.status}</small>
+                          <small>{Object.keys(step.output ?? {}).length ? compactText(JSON.stringify(step.output), 90) : "sem saída"}</small>
                         </article>
                       ))}
                     </div>
+                    <div className="context-list">
+                      <span><strong>Log:</strong> {selectedWorkflow?.log_path || "-"}</span>
+                      <span><strong>Output:</strong> {selectedWorkflow?.output_path || "-"}</span>
+                      <span><strong>Resultado:</strong> {workflowStatusLabel(selectedWorkflow?.status)}</span>
+                    </div>
                     <pre className="preview-text terminal">
                       {selectedWorkflow?.log_tail || "Selecione um workflow para acompanhar progresso, passos e logs."}
+                    </pre>
+                    <pre className="preview-text compact">
+                      {selectedWorkflow?.output_preview
+                        ? JSON.stringify(selectedWorkflow.output_preview, null, 2)
+                        : "O preview do output do workflow aparece aqui quando existir."}
                     </pre>
                   </div>
                 </section>
@@ -2516,13 +2547,22 @@ export default function App() {
               <h3>{selectedWorkflow?.workflow_name || "Nenhum workflow selecionado"}</h3>
               <div className="context-list">
                 <span><strong>Status:</strong> {selectedWorkflow?.status || "idle"}</span>
+                <span><strong>Leitura operacional:</strong> {workflowStatusLabel(selectedWorkflow?.status)}</span>
                 <span><strong>Progresso:</strong> {Math.round((selectedWorkflow?.progress ?? 0) * 100)}%</span>
                 <span><strong>Passos:</strong> {selectedWorkflow?.steps.length ?? 0}</span>
                 <span><strong>Tarefa:</strong> {selectedWorkflow?.task_id ? sessionTaskMap.get(selectedWorkflow.task_id)?.subject || selectedWorkflow.task_id : "sem vínculo"}</span>
                 <span><strong>Sessão:</strong> {selectedWorkflow?.session_id || "sem vínculo"}</span>
+                <span><strong>Logs:</strong> {selectedWorkflow?.log_path || "-"}</span>
+                <span><strong>Artefato:</strong> {selectedWorkflow?.output_path || "-"}</span>
+                <span><strong>Restart:</strong> {selectedWorkflow?.metadata?.recovered_after_restart ? "recuperado após restart" : "execução contínua"}</span>
               </div>
               <pre className="preview-text compact terminal">
                 {selectedWorkflow?.log_tail || "Os logs dos workflows multi-step aparecem aqui."}
+              </pre>
+              <pre className="preview-text compact">
+                {selectedWorkflow?.output_preview
+                  ? JSON.stringify(selectedWorkflow.output_preview, null, 2)
+                  : "O preview de saída e artefatos do workflow aparece aqui."}
               </pre>
             </section>
 
