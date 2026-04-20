@@ -47,7 +47,7 @@ Consulte sempre `.codex/memory/orquestra-continuity.md` para:
 - arquivos principais tocados
 
 ## Estado atual do processo
-O ciclo atual de paridade alta e documentacao foi fechado em `main`, com:
+O ciclo atual em `main` agora inclui, alem da paridade alta anterior:
 
 - memoria hibrida
 - compactacao de contexto
@@ -55,13 +55,22 @@ O ciclo atual de paridade alta e documentacao foi fechado em `main`, com:
 - workflows locais multi-step
 - desktop macOS com instalador/desinstalador
 - README e docs reescritos para a superficie atual do produto
+- `Train Plane` remoto dedicado com:
+  - backend `orquestra_trainplane/`
+  - proxy local `/api/remote/trainplane/*`
+  - painel no `Execution Center`
+  - sync de `base model` e `dataset bundle`
+  - `training runs`, `artifacts`, `evaluations` e `comparisons`
+  - cobertura de testes e validacao oficial
 
 ## O que ainda falta para encerrar o processo mais amplo
 Os proximos itens, fora do nucleo ja entregue, sao:
 
-1. OCR/transcricao opcional mais rica para assets multimodais
-2. execucao remota real de conectores e jobs, com EC2 ainda adiado
-3. assinatura/notarizacao para distribuicao publica
+1. validar manualmente o `Train Plane` com `LM Studio` local como baseline real
+2. validar manualmente o `Train Plane` com um provider real por `API key`
+3. substituir o modo remoto simulado por integracoes reais `S3 multipart + CloudWatch + SSM`
+4. OCR/transcricao opcional mais rica para assets multimodais
+5. assinatura/notarizacao para distribuicao publica
 
 ## Nova base para o proximo ciclo
 Antes de habilitar providers reais, use:

@@ -1,34 +1,50 @@
 # Orquestra Continuity
 
 - Branch atual: `main`
-- Ultimo commit: `2322af9`
-- Etapa concluida: `Smoke opcional de providers reais integrado à validação oficial`
-- Estado do worktree: `Em validação final antes do commit em main com scripts e documentação atualizados`
+- Ultimo commit: `7362734`
+- Etapa concluida: `Train Plane remoto integrado ao backend local, UI web/desktop, testes e validação oficial`
+- Estado do worktree: `Pronto para o checkpoint final de handoff em main`
 - Validacoes executadas:
   - `bash -n scripts/*.sh`
+  - `.venv/bin/python -m py_compile orquestra_ai/*.py orquestra_trainplane/*.py`
+  - `PYTHONPATH=. .venv/bin/pytest -q`
+  - `cd orquestra_web && ./node_modules/.bin/vitest run --environment jsdom`
+  - `cd orquestra_web && ./node_modules/.bin/tsc -b`
   - `./scripts/validate_orquestra.sh`
   - `git diff --check`
 - Pendencias abertas:
+  - validar manualmente `evaluation` e `comparison` com `LM Studio` local e provider com `API key` real
+  - substituir o modo remoto simulado por integracoes reais `S3 multipart + CloudWatch + SSM` no `Train Plane`
   - evoluir OCR/transcricao opcional para assets multimodais ainda sem extração mais rica
-  - ligar execucao remota real de conectores, com EC2 ainda fora da entrega atual
   - fechar assinatura/notarizacao se houver distribuicao publica
-- Proxima acao exata: `Iniciar um ciclo curto focado em OCR/transcricao opcional para assets multimodais, preservando o fluxo inventory-first`
+- Proxima acao exata: `Validar o Train Plane fim a fim com baseline via LM Studio local e um provider real por API key, depois abrir a etapa de integracao AWS real do servico remoto`
 - Arquivos principais tocados:
-  - `scripts/validate_orquestra.sh`
-  - `scripts/validate_orquestra_real_provider_smoke.sh`
+  - `orquestra_trainplane/app.py`
+  - `orquestra_trainplane/worker.py`
+  - `orquestra_ai/trainplane.py`
+  - `orquestra_ai/app.py`
+  - `orquestra_ai/operations.py`
+  - `orquestra_web/src/App.tsx`
+  - `orquestra_web/src/api.ts`
+  - `orquestra_web/src/App.test.tsx`
   - `README.md`
-  - `docs/01-instalacao-validacao-macos.md`
   - `docs/02-manual-operacional.md`
-  - `.codex/memory/orquestra-continuity.md`
+  - `docs/11-orquestra-ai-control-plane.md`
+  - `scripts/start_orquestra_trainplane.sh`
+  - `scripts/validate_orquestra.sh`
 - O que mudou:
-  - a validacao oficial agora aceita smoke real opcional por provider via `--real-provider` ou `ORQUESTRA_VALIDATE_REAL_PROVIDERS`
-  - foi adicionado `scripts/validate_orquestra_real_provider_smoke.sh` para chamar providers reais fim a fim pela API local
-  - README e manuais operacionais agora mostram readiness e smoke real como trilhos separados
+  - foi criado o pacote `orquestra_trainplane/` com auth, base models, dataset bundles, training runs, artifacts, evaluations e comparisons
+  - o backend do Orquestra agora expõe `/api/remote/trainplane/*` com persistencia local de configuracao e espelhamento de runs/artefatos
+  - o `Execution Center` ganhou o painel `Remote Train Plane` com config, sync, runs, métricas e evaluation/comparison lab
+  - a validacao oficial agora cobre `orquestra_trainplane` no `py_compile`, smoke da API local e a nova suíte de testes
 - O que validar:
-  - rodar smoke real somente quando houver provider pronto e custo aceito pelo operador
-  - commit em `main` com esse checkpoint
+  - testar manualmente `LM Studio` local como baseline real no `Evaluation Lab`
+  - testar manualmente um provider com `API key` real no `Evaluation Lab`
+  - decidir a primeira micro-etapa da integração AWS real do Train Plane
 - Caminhos de logs/artefatos:
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.log`
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.json`
+  - `experiments/trainplane/runs/<project>/<run>.log`
+  - `experiments/trainplane/datasets/<project>/<bundle>.jsonl`
 - Comando de retomada:
   - `Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.`
