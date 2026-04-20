@@ -247,6 +247,39 @@ Estados finais relevantes:
 - vinculo com sessao
 - recuperacao apos restart
 
+### Remote Train Plane
+Dentro do `Execution Center`, o bloco `Remote Train Plane` organiza o treino remoto e a validacao comparativa.
+
+#### Blocos principais
+- `Access & Config`
+- `Base Models & Datasets`
+- `Training Runs`
+- `Live Metrics`
+- `Evaluation Lab`
+- `Promotion & Registry`
+
+#### Fluxo recomendado
+1. salvar `base_url`, token, regiao, `instance_id` e `bucket`
+2. testar a conexao
+3. sincronizar um `base model`
+4. exportar um `dataset bundle` a partir de `training candidates` aprovados
+5. criar um `training run`
+6. acompanhar `loss`, `eval_loss`, GPU, CPU, checkpoints e artifact
+7. executar `evaluation` e `comparison`
+8. promover o artifact para o registry local se ele passar na revisao
+
+#### Baselines suportados no lab comparativo
+- `lmstudio_local`
+- `provider_api`
+- `trainplane_artifact`
+
+#### O que o operador deve observar
+- se o token esta configurado
+- se o endpoint remoto responde no teste de conexao
+- se o run gera checkpoints e artifact
+- se a comparacao melhora `correctness` e `faithfulness`
+- se o artifact promovido realmente deve entrar no registry local
+
 ## Operations Dashboard
 O `Operations Dashboard` e a visao executiva da stack.
 

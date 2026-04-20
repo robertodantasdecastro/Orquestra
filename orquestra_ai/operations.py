@@ -518,6 +518,7 @@ class OrquestraOperations:
         lmstudio_base = os.getenv("LMSTUDIO_API_BASE", "http://localhost:1234/v1").rstrip("/")
         ollama_base = os.getenv("ORQUESTRA_OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         litellm_base = (self.settings.litellm_proxy_url or "").rstrip("/")
+        trainplane_base = os.getenv("TRAINPLANE_PUBLIC_BASE_URL", "http://127.0.0.1:8818").rstrip("/")
 
         return [
             self._service(
@@ -659,6 +660,16 @@ class OrquestraOperations:
                 summary="Agregador opcional para providers remotos.",
                 detail=litellm_base or "não configurado",
                 metadata={"configured": bool(litellm_base)},
+            ),
+            self._service(
+                service_id="trainplane_remote",
+                label="Remote Train Plane",
+                category="external",
+                ready=_http_ready(f"{trainplane_base}/api/health"),
+                status="online" if _http_ready(f"{trainplane_base}/api/health") else "idle",
+                summary="Serviço remoto dedicado para fine-tuning adapter-first e avaliação comparativa.",
+                detail=trainplane_base,
+                metadata={"configured": bool(trainplane_base)},
             ),
             self._service(
                 service_id="installer",

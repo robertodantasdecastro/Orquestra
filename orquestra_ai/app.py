@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import hashlib
 import json
 from pathlib import Path
 from typing import AsyncIterator, Iterator
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +35,7 @@ from .models import (
     Project,
     ProjectDeployment,
     ProviderProfile,
+    RemoteTrainPlaneConfig,
     SessionTask,
     SessionSummary,
     SessionTranscript,
@@ -74,6 +78,17 @@ from .services import (
     workspace_scan_to_dict,
 )
 from .session_profile import get_session_metadata, get_session_profile, profile_prompt_section, set_session_profile
+from .trainplane import (
+    TrainPlaneClientError,
+    build_dataset_bundle_records,
+    build_trainplane_client,
+    get_or_create_trainplane_config,
+    get_trainplane_token,
+    mirror_remote_artifact,
+    mirror_remote_run,
+    set_trainplane_token,
+    trainplane_config_to_dict,
+)
 from .workflow_engine import WorkflowEngine
 from .workspace import WorkspaceService
 
@@ -277,6 +292,76 @@ class RegistryCompareRequest(BaseModel):
     candidate_artifact_id: str
 
 
+class RemoteTrainPlaneConfigRequest(BaseModel):
+    base_url: str = ""
+    token: str | None = None
+    region: str = ""
+    instance_id: str = ""
+    bucket: str = ""
+    ssm_enabled: bool = True
+    default_training_profile: dict[str, object] = Field(default_factory=dict)
+    default_serving_profile: dict[str, object] = Field(default_factory=dict)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class RemoteTrainPlaneBaseModelSyncRequest(BaseModel):
+    project_id: str | None = None
+    name: str
+    source_kind: str = "huggingface_ref"
+    source_ref: str = ""
+    local_path: str = ""
+    format: str = "huggingface"
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class RemoteTrainPlaneDatasetSyncRequest(BaseModel):
+    project_id: str | None = None
+    session_id: str | None = None
+    project_slug: str = ""
+    name: str = "dataset-bundle"
+    approved_only: bool = True
+    max_records: int = 200
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class RemoteTrainPlaneRunCreateRequest(BaseModel):
+    project_id: str | None = None
+    project_slug: str = ""
+    name: str
+    base_model_id: str
+    dataset_bundle_id: str
+    summary: str = ""
+    training_profile: dict[str, object] = Field(default_factory=dict)
+
+
+class RemoteTrainPlaneEvaluationRequest(BaseModel):
+    project_id: str | None = None
+    session_id: str | None = None
+    candidate_artifact_id: str
+    baseline_mode: str
+    baseline_ref: str = ""
+    baseline_provider_id: str | None = None
+    baseline_model_name: str | None = None
+    suite_name: str = "default-suite"
+    prompts: list[str] = Field(default_factory=list)
+    cases: list[dict[str, object]] = Field(default_factory=list)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class RemoteTrainPlaneComparisonRequest(BaseModel):
+    project_id: str | None = None
+    session_id: str | None = None
+    candidate_artifact_id: str
+    baseline_mode: str
+    baseline_ref: str = ""
+    baseline_provider_id: str | None = None
+    baseline_model_name: str | None = None
+    prompt_set_name: str = "default-compare"
+    prompts: list[str] = Field(default_factory=list)
+    cases: list[dict[str, object]] = Field(default_factory=list)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class WorkspaceAttachRequest(BaseModel):
     project_id: str | None = None
     root_path: str
@@ -432,6 +517,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     app.state.workspace_service = workspace_service
     app.state.operations = operations
     app.state.workflows = workflows
+    app.state.trainplane_client_builder = build_trainplane_client
 
     frontend_dist = app_settings.workspace_root / "orquestra_web" / "dist"
     assets_dir = frontend_dist / "assets"
@@ -453,6 +539,81 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     def get_gateway(session: Session = Depends(get_session)) -> OrquestraGateway:
         providers = list_gateway_providers(session)
         return OrquestraGateway(providers)
+
+    def get_trainplane_client(session: Session = Depends(get_session)):
+        return app.state.trainplane_client_builder(session)
+
+    def trainplane_config_payload(session: Session) -> dict[str, object]:
+        config = get_or_create_trainplane_config(session)
+        return trainplane_config_to_dict(config, token_configured=bool(get_trainplane_token()))
+
+    def build_prompt_cases(prompts: list[str], cases: list[dict[str, object]]) -> list[dict[str, object]]:
+        normalized: list[dict[str, object]] = []
+        for raw_case in cases:
+            prompt = str(raw_case.get("prompt", "")).strip()
+            if not prompt:
+                continue
+            normalized.append(
+                {
+                    "prompt": prompt,
+                    "expected_output": str(raw_case.get("expected_output", "")).strip(),
+                    "baseline_output": str(raw_case.get("baseline_output", "")).strip(),
+                    "metadata": raw_case.get("metadata", {}) if isinstance(raw_case.get("metadata"), dict) else {},
+                }
+            )
+        for prompt in prompts:
+            text = prompt.strip()
+            if text:
+                normalized.append({"prompt": text, "expected_output": "", "baseline_output": "", "metadata": {}})
+        deduped: list[dict[str, object]] = []
+        seen: set[str] = set()
+        for item in normalized:
+            key = item["prompt"]
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        return deduped
+
+    def complete_local_baseline_cases(
+        *,
+        session: Session,
+        baseline_mode: str,
+        baseline_provider_id: str | None,
+        baseline_model_name: str | None,
+        cases: list[dict[str, object]],
+    ) -> tuple[list[dict[str, object]], str]:
+        resolved_ref = ""
+        if baseline_mode not in {"lmstudio_local", "provider_api"}:
+            return cases, resolved_ref
+        provider_id = baseline_provider_id or ("lmstudio" if baseline_mode == "lmstudio_local" else app_settings.default_provider_id)
+        gateway = OrquestraGateway(list_gateway_providers(session))
+        resolved_model = baseline_model_name or None
+        for item in cases:
+            if item.get("baseline_output"):
+                continue
+            try:
+                response = gateway.generate(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "Voce responde como baseline operacional do Orquestra. "
+                                "Seja direto, objetivo e preserve continuidade de contexto quando existir."
+                            ),
+                        },
+                        {"role": "user", "content": str(item.get("prompt", ""))},
+                    ],
+                    provider_id=provider_id,
+                    model_name=resolved_model,
+                    temperature=0.1,
+                    max_tokens=500,
+                )
+            except GatewayLlmError as exc:
+                raise HTTPException(status_code=502, detail=f"Falha ao consultar baseline local {provider_id}: {exc}") from exc
+            item["baseline_output"] = response.content
+            resolved_model = response.model_name
+        return cases, f"{provider_id}/{resolved_model or 'default'}"
 
     @app.get("/api/health")
     def api_health(session: Session = Depends(get_session)) -> dict[str, object]:
@@ -1394,6 +1555,386 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         )
         session.commit()
         return JSONResponse(result)
+
+    @app.get("/api/remote/trainplane/config")
+    def get_remote_trainplane_config(session: Session = Depends(get_session)) -> dict[str, object]:
+        return trainplane_config_payload(session)
+
+    @app.put("/api/remote/trainplane/config")
+    def update_remote_trainplane_config(
+        payload: RemoteTrainPlaneConfigRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        config = get_or_create_trainplane_config(session)
+        config.base_url = payload.base_url.strip()
+        config.region = payload.region.strip()
+        config.instance_id = payload.instance_id.strip()
+        config.bucket = payload.bucket.strip()
+        config.ssm_enabled = payload.ssm_enabled
+        config.default_training_profile_json = json.dumps(payload.default_training_profile, ensure_ascii=False)
+        config.default_serving_profile_json = json.dumps(payload.default_serving_profile, ensure_ascii=False)
+        config.metadata_json = json.dumps(payload.metadata, ensure_ascii=False)
+        config.updated_at = utc_now()
+        session.add(config)
+        if payload.token is not None:
+            try:
+                set_trainplane_token(payload.token)
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Falha ao salvar token do Train Plane: {exc}") from exc
+        session.commit()
+        session.refresh(config)
+        return trainplane_config_payload(session)
+
+    @app.post("/api/remote/trainplane/test-connection")
+    def test_remote_trainplane_connection(
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        config_payload = trainplane_config_payload(session)
+        try:
+            health_payload = client.health()
+        except TrainPlaneClientError as exc:
+            return {"ok": False, "config": config_payload, "error": str(exc)}
+        return {"ok": True, "config": config_payload, "health": health_payload}
+
+    @app.get("/api/remote/trainplane/base-models")
+    def list_remote_trainplane_base_models(client=Depends(get_trainplane_client)) -> list[dict[str, object]]:
+        try:
+            return client.list_base_models()
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/api/remote/trainplane/sync/base-model")
+    def sync_remote_trainplane_base_model(
+        payload: RemoteTrainPlaneBaseModelSyncRequest,
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        size_bytes = 0
+        checksum_sha256 = ""
+        storage_uri = payload.source_ref.strip()
+        if payload.local_path.strip():
+            local_path = Path(payload.local_path).expanduser()
+            if not local_path.exists():
+                raise HTTPException(status_code=404, detail="Arquivo local do base model não encontrado.")
+            size_bytes = local_path.stat().st_size
+            digest = hashlib.sha256()
+            with local_path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            checksum_sha256 = digest.hexdigest()
+            storage_uri = f"file://{local_path.resolve()}"
+        try:
+            init_payload = client.init_base_model_upload(
+                {
+                    "name": payload.name,
+                    "source_kind": payload.source_kind,
+                    "source_ref": payload.source_ref,
+                    "size_bytes": size_bytes,
+                    "checksum_sha256": checksum_sha256,
+                    "format": payload.format,
+                    "metadata": {
+                        **payload.metadata,
+                        "project_id": payload.project_id,
+                        "local_path": payload.local_path,
+                    },
+                }
+            )
+            return client.complete_base_model_upload(
+                {
+                    "upload_id": str(init_payload.get("upload_id", "")),
+                    "storage_uri": storage_uri or f"orquestra://base-models/{payload.name}",
+                    "metadata": {"synced_from": "orquestra_local"},
+                }
+            )
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.get("/api/remote/trainplane/dataset-bundles")
+    def list_remote_trainplane_dataset_bundles(client=Depends(get_trainplane_client)) -> list[dict[str, object]]:
+        try:
+            return client.list_dataset_bundles()
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/api/remote/trainplane/sync/dataset-bundle")
+    def sync_remote_trainplane_dataset_bundle(
+        payload: RemoteTrainPlaneDatasetSyncRequest,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        records = build_dataset_bundle_records(
+            session,
+            project_id=payload.project_id,
+            session_id=payload.session_id,
+            approved_only=payload.approved_only,
+            max_records=payload.max_records,
+        )
+        if not records:
+            raise HTTPException(status_code=400, detail="Nenhum training candidate disponível para exportar.")
+        project_slug = payload.project_slug.strip()
+        if not project_slug and payload.project_id:
+            project = session.get(Project, payload.project_id)
+            project_slug = project.slug if project is not None else ""
+        project_slug = project_slug or app_settings.default_project_slug
+        try:
+            return client.create_dataset_bundle(
+                {
+                    "project_slug": project_slug,
+                    "name": payload.name,
+                    "source": "orquestra_local",
+                    "records": records,
+                    "metadata": {
+                        **payload.metadata,
+                        "project_id": payload.project_id,
+                        "session_id": payload.session_id,
+                        "approved_only": payload.approved_only,
+                    },
+                }
+            )
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.get("/api/remote/trainplane/runs")
+    def list_remote_trainplane_runs(
+        project_id: str | None = None,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> list[dict[str, object]]:
+        try:
+            payload = client.list_runs()
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        results: list[dict[str, object]] = []
+        for item in payload:
+            mirrored = mirror_remote_run(session, item, project_id=project_id)
+            enriched = {**item, "mirrored_job_id": mirrored.id}
+            results.append(enriched)
+        artifact_payload = client.list_artifacts()
+        for artifact in artifact_payload:
+            mirror_remote_artifact(session, artifact, project_id=project_id)
+        session.commit()
+        return results
+
+    @app.post("/api/remote/trainplane/runs")
+    def create_remote_trainplane_run(
+        payload: RemoteTrainPlaneRunCreateRequest,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        project_slug = payload.project_slug.strip()
+        if not project_slug and payload.project_id:
+            project = session.get(Project, payload.project_id)
+            project_slug = project.slug if project is not None else ""
+        config = get_or_create_trainplane_config(session)
+        training_profile = {
+            **json.loads(config.default_training_profile_json or "{}"),
+            **payload.training_profile,
+        }
+        try:
+            remote_payload = client.create_run(
+                {
+                    "project_slug": project_slug or app_settings.default_project_slug,
+                    "name": payload.name,
+                    "base_model_id": payload.base_model_id,
+                    "dataset_bundle_id": payload.dataset_bundle_id,
+                    "summary": payload.summary,
+                    "training_profile": training_profile,
+                }
+            )
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        mirrored = mirror_remote_run(session, remote_payload, project_id=payload.project_id)
+        payload_dict = {**remote_payload, "mirrored_job_id": mirrored.id}
+        session.commit()
+        return payload_dict
+
+    @app.get("/api/remote/trainplane/runs/{run_id}")
+    def get_remote_trainplane_run(
+        run_id: str,
+        project_id: str | None = None,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        try:
+            payload = client.get_run(run_id)
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        mirrored = mirror_remote_run(session, payload, project_id=project_id)
+        artifact = payload.get("artifact")
+        if isinstance(artifact, dict) and artifact:
+            mirrored_artifact = mirror_remote_artifact(session, artifact, project_id=project_id)
+            payload["mirrored_artifact_id"] = mirrored_artifact.id
+        payload["mirrored_job_id"] = mirrored.id
+        session.commit()
+        return payload
+
+    @app.post("/api/remote/trainplane/runs/{run_id}/cancel")
+    def cancel_remote_trainplane_run(
+        run_id: str,
+        project_id: str | None = None,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        try:
+            payload = client.cancel_run(run_id)
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        mirrored = mirror_remote_run(session, payload, project_id=project_id)
+        session.commit()
+        return {**payload, "mirrored_job_id": mirrored.id}
+
+    @app.get("/api/remote/trainplane/runs/{run_id}/stream")
+    def stream_remote_trainplane_run(run_id: str, client=Depends(get_trainplane_client)):
+        try:
+            stream_url = client.stream_url(run_id)
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        def proxy_events() -> Iterator[bytes]:
+            request = UrlRequest(stream_url, headers={"Accept": "text/event-stream"})
+            try:
+                with urlopen(request, timeout=60) as response:
+                    while True:
+                        chunk = response.read(2048)
+                        if not chunk:
+                            break
+                        yield chunk
+            except HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="ignore")
+                yield _sse("error", {"detail": detail or f"HTTP {exc.code}"}).encode("utf-8")
+            except (URLError, OSError) as exc:
+                yield _sse("error", {"detail": str(exc)}).encode("utf-8")
+
+        return StreamingResponse(proxy_events(), media_type="text/event-stream")
+
+    @app.get("/api/remote/trainplane/artifacts")
+    def list_remote_trainplane_artifacts(
+        project_id: str | None = None,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> list[dict[str, object]]:
+        try:
+            payload = client.list_artifacts()
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        results: list[dict[str, object]] = []
+        for item in payload:
+            mirrored = mirror_remote_artifact(session, item, project_id=project_id)
+            results.append({**item, "mirrored_artifact_id": mirrored.id})
+        session.commit()
+        return results
+
+    @app.post("/api/remote/trainplane/artifacts/{artifact_id}/merge")
+    def merge_remote_trainplane_artifact(
+        artifact_id: str,
+        project_id: str | None = None,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        try:
+            payload = client.merge_artifact(artifact_id)
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        mirrored = mirror_remote_artifact(session, payload, project_id=project_id)
+        session.commit()
+        return {**payload, "mirrored_artifact_id": mirrored.id}
+
+    @app.post("/api/remote/trainplane/artifacts/{artifact_id}/promote")
+    def promote_remote_trainplane_artifact(
+        artifact_id: str,
+        project_id: str | None = None,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        try:
+            payload = client.promote_artifact(artifact_id)
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        mirrored = mirror_remote_artifact(session, payload, project_id=project_id)
+        session.commit()
+        return {**payload, "mirrored_artifact_id": mirrored.id}
+
+    @app.get("/api/remote/trainplane/evaluations")
+    def list_remote_trainplane_evaluations(client=Depends(get_trainplane_client)) -> list[dict[str, object]]:
+        try:
+            return client.list_evaluations()
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/api/remote/trainplane/evaluations")
+    def create_remote_trainplane_evaluation(
+        payload: RemoteTrainPlaneEvaluationRequest,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        cases = build_prompt_cases(payload.prompts, payload.cases)
+        if not cases:
+            raise HTTPException(status_code=400, detail="Nenhum prompt/case disponível para avaliação.")
+        cases, resolved_ref = complete_local_baseline_cases(
+            session=session,
+            baseline_mode=payload.baseline_mode,
+            baseline_provider_id=payload.baseline_provider_id,
+            baseline_model_name=payload.baseline_model_name,
+            cases=cases,
+        )
+        try:
+            return client.create_evaluation(
+                {
+                    "candidate_artifact_id": payload.candidate_artifact_id,
+                    "baseline_mode": payload.baseline_mode,
+                    "baseline_ref": payload.baseline_ref or resolved_ref,
+                    "suite_name": payload.suite_name,
+                    "cases": cases,
+                    "metadata": {
+                        **payload.metadata,
+                        "project_id": payload.project_id,
+                        "session_id": payload.session_id,
+                    },
+                }
+            )
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.get("/api/remote/trainplane/comparisons")
+    def list_remote_trainplane_comparisons(client=Depends(get_trainplane_client)) -> list[dict[str, object]]:
+        try:
+            return client.list_comparisons()
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.post("/api/remote/trainplane/comparisons")
+    def create_remote_trainplane_comparison(
+        payload: RemoteTrainPlaneComparisonRequest,
+        session: Session = Depends(get_session),
+        client=Depends(get_trainplane_client),
+    ) -> dict[str, object]:
+        cases = build_prompt_cases(payload.prompts, payload.cases)
+        if not cases:
+            raise HTTPException(status_code=400, detail="Nenhum prompt/case disponível para comparação.")
+        cases, resolved_ref = complete_local_baseline_cases(
+            session=session,
+            baseline_mode=payload.baseline_mode,
+            baseline_provider_id=payload.baseline_provider_id,
+            baseline_model_name=payload.baseline_model_name,
+            cases=cases,
+        )
+        try:
+            return client.create_comparison(
+                {
+                    "candidate_artifact_id": payload.candidate_artifact_id,
+                    "baseline_mode": payload.baseline_mode,
+                    "baseline_ref": payload.baseline_ref or resolved_ref,
+                    "prompt_set_name": payload.prompt_set_name,
+                    "cases": cases,
+                    "metadata": {
+                        **payload.metadata,
+                        "project_id": payload.project_id,
+                        "session_id": payload.session_id,
+                    },
+                }
+            )
+        except TrainPlaneClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     @app.get("/api/workspace/scans")
     def list_workspace_scans(project_id: str | None = None, session: Session = Depends(get_session)) -> list[dict[str, object]]:

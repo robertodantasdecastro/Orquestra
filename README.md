@@ -8,9 +8,10 @@
 - `Assistant Workspace` com setup de sessao por objetivo, preset e politicas de memoria/RAG.
 - `Memory Studio` com memoria hibrida, `Memory Inbox`, recall lexical + vetorial e projecao em arquivos.
 - `Workspace Browser` com leitura `inventory-first` e extracao sob demanda.
-- `Execution Center` com providers, jobs, workflows locais, registry e consulta RAG operacional.
+- `Execution Center` com providers, jobs, workflows locais, registry, consulta RAG operacional e painel `Remote Train Plane`.
 - `Operations Dashboard` e `Process Center` para saude da stack, listeners, processos e artefatos.
 - app desktop macOS com instalador, desinstalador, runtime espelhado e LaunchAgent local.
+- servico remoto dedicado `orquestra_trainplane` para bootstrap admin, PAT, treino `adapter-first`, artifacts, comparacoes e benchmark remoto.
 
 ## Visao geral do produto
 O Orquestra transforma o Mac em uma estacao de coordenacao de projetos de IA. Em vez de depender de um transcript bruto gigante ou de scripts soltos, ele organiza:
@@ -116,6 +117,13 @@ Os recursos de maior impacto operacional do Orquestra hoje sao:
 - saida parcial em falha
 - retomada visual apos restart
 - vinculo opcional entre workflow, sessao e tarefa
+- bloco `Remote Train Plane` com:
+  - `Access & Config`
+  - `Base Models & Datasets`
+  - `Training Runs`
+  - `Live Metrics`
+  - `Evaluation Lab`
+  - `Promotion & Registry`
 
 ## Contratos publicos importantes
 Algumas flags de contexto agora tem comportamento real no backend:
@@ -138,6 +146,7 @@ Ordem fixa de montagem de contexto:
 
 ## Estrutura do repositório
 - `orquestra_ai/`: API FastAPI, gateway, memoria, planner, workflows, jobs e runtime
+- `orquestra_trainplane/`: servico remoto dedicado para fine-tuning adapter-first, metrics, artifacts e comparacao
 - `orquestra_web/`: frontend React/Vite e shell desktop Tauri
 - `rag/`: engine RAG integrado ao backend
 - `training/local/`: utilitarios locais de treino/avaliacao
@@ -165,6 +174,11 @@ Subir a UI web:
 Subir a stack local:
 ```bash
 ./scripts/start_orquestra_stack.sh
+```
+
+Subir o Train Plane remoto local/simulado:
+```bash
+./scripts/start_orquestra_trainplane.sh
 ```
 
 Abrir o desktop:
@@ -218,7 +232,26 @@ Ele executa:
 - `cargo check`
 - validacao do pacote macOS quando `.app` e `.dmg` existem
 - smoke da API cobrindo sessao, memoria, compactacao, planner, workflow, workspace e RAG
+- cobertura dedicada do `orquestra_trainplane` e do proxy local `/api/remote/trainplane/*`
 - smoke real opcional por provider quando `--real-provider` ou `ORQUESTRA_VALIDATE_REAL_PROVIDERS` forem usados
+
+## Train Plane remoto
+O `Orquestra Train Plane` e o subsistema dedicado para treino remoto em EC2 ou em modo local de validacao. A V1 entregue hoje inclui:
+
+- `trainplane-api` em FastAPI com bootstrap admin, login por `TOTP`, `PAT`, base models, dataset bundles, training runs, artifacts, evaluations e comparisons
+- `trainplane-worker` com execucao `adapter-first` simulada para validar fluxo, persistencia e UX
+- console web simples servido pelo proprio servico remoto
+- proxy local no Orquestra em `/api/remote/trainplane/*`
+- armazenamento local/arquivo pronto para evolucao futura para `S3 + CloudWatch + SSM`
+
+Fluxo operacional:
+1. configurar endpoint e token do Train Plane no `Execution Center`
+2. sincronizar `base model` por `huggingface_ref` ou caminho local
+3. exportar `dataset bundle` a partir de `training candidates` aprovados
+4. criar um `training run` remoto
+5. acompanhar metricas, checkpoints e artifact
+6. rodar `evaluation` e `comparison` contra `LM Studio`, `provider_api` ou outro artifact baseline
+7. promover o artifact remoto para o registry local quando fizer sentido
 
 ## Providers reais
 Para sair do modo mock com mais seguranca, use o checklist de providers:

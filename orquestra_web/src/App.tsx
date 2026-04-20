@@ -13,6 +13,14 @@ import {
   PlannerSnapshot,
   Project,
   RagResult,
+  RemoteArtifact,
+  RemoteBaseModel,
+  RemoteComparisonRun,
+  RemoteDatasetBundle,
+  RemoteEvaluationRun,
+  RemoteTrainPlaneConfig,
+  RemoteTrainPlaneConnectionState,
+  RemoteTrainingRun,
   RegistryCompareResult,
   SessionCompactionState,
   SessionSummary,
@@ -35,10 +43,16 @@ import {
   createMemory,
   createOpsRun,
   createProject,
+  cancelRemoteTrainPlaneRun,
+  createRemoteTrainPlaneComparison,
+  createRemoteTrainPlaneEvaluation,
+  createRemoteTrainPlaneRun,
   createSession,
   createSessionTask,
   createWorkflowRun,
   extractWorkspaceAsset,
+  getRemoteTrainPlaneConfig,
+  getRemoteTrainPlaneRun,
   getHealth,
   getOpsDashboard,
   getOpsRun,
@@ -49,6 +63,13 @@ import {
   getTranscript,
   getWorkflowRun,
   getWorkspaceScan,
+  listRemoteTrainPlaneArtifacts,
+  listRemoteTrainPlaneBaseModels,
+  listRemoteTrainPlaneComparisons,
+  listRemoteTrainPlaneDatasetBundles,
+  listRemoteTrainPlaneEvaluations,
+  listRemoteTrainPlaneRuns,
+  mergeRemoteTrainPlaneArtifact,
   listMemory,
   listMemoryCandidates,
   listMemoryTopics,
@@ -71,7 +92,12 @@ import {
   rejectMemoryCandidate,
   rebuildPlanner,
   resumeSession,
+  promoteRemoteTrainPlaneArtifact,
+  syncRemoteTrainPlaneBaseModel,
+  syncRemoteTrainPlaneDatasetBundle,
   streamChat,
+  testRemoteTrainPlaneConnection,
+  updateRemoteTrainPlaneConfig,
   updateSessionProfile
 } from "./api";
 import orquestraLogo from "./assets/orquestra-logo.svg";
@@ -168,6 +194,26 @@ function compactText(value: string, limit = 180) {
   return `${normalized.slice(0, limit - 1)}…`;
 }
 
+function safeJsonParse<T>(value: string, fallback: T): T {
+  try {
+    return value.trim() ? (JSON.parse(value) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function buildSparklinePoints(values: number[], width = 340, height = 120) {
+  if (!values.length) return "";
+  const max = Math.max(...values, 1);
+  return values
+    .map((value, index) => {
+      const x = (index / Math.max(values.length - 1, 1)) * width;
+      const y = height - ((value / max) * (height - 10)) - 5;
+      return `${x},${y}`;
+    })
+    .join(" ");
+}
+
 function workflowStatusLabel(status?: string | null) {
   switch (status) {
     case "succeeded":
@@ -261,6 +307,52 @@ export default function App() {
   const [registryCandidateId, setRegistryCandidateId] = useState("");
   const [registryCompare, setRegistryCompare] = useState<RegistryCompareResult | null>(null);
   const [remoteLog, setRemoteLog] = useState("");
+  const [remoteTrainPlaneConfig, setRemoteTrainPlaneConfig] = useState<RemoteTrainPlaneConfig | null>(null);
+  const [remoteTrainPlaneConnection, setRemoteTrainPlaneConnection] = useState<RemoteTrainPlaneConnectionState | null>(null);
+  const [remoteBaseModels, setRemoteBaseModels] = useState<RemoteBaseModel[]>([]);
+  const [remoteDatasetBundles, setRemoteDatasetBundles] = useState<RemoteDatasetBundle[]>([]);
+  const [remoteTrainRuns, setRemoteTrainRuns] = useState<RemoteTrainingRun[]>([]);
+  const [selectedRemoteTrainRunId, setSelectedRemoteTrainRunId] = useState("");
+  const [selectedRemoteTrainRun, setSelectedRemoteTrainRun] = useState<RemoteTrainingRun | null>(null);
+  const [remoteArtifacts, setRemoteArtifacts] = useState<RemoteArtifact[]>([]);
+  const [remoteEvaluations, setRemoteEvaluations] = useState<RemoteEvaluationRun[]>([]);
+  const [remoteComparisons, setRemoteComparisons] = useState<RemoteComparisonRun[]>([]);
+  const [trainPlaneForm, setTrainPlaneForm] = useState({
+    base_url: "http://127.0.0.1:8818",
+    token: "",
+    region: "us-east-1",
+    instance_id: "",
+    bucket: "",
+    ssm_enabled: true,
+    default_training_profile: '{\n  "execution_mode": "qlora",\n  "max_steps": 12\n}',
+    default_serving_profile: '{\n  "engine": "vllm",\n  "mode": "adapter-first"\n}'
+  });
+  const [remoteBaseModelForm, setRemoteBaseModelForm] = useState({
+    name: "Meta-Llama-3.1-8B-Instruct",
+    source_kind: "huggingface_ref",
+    source_ref: "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    local_path: "",
+    format: "huggingface"
+  });
+  const [remoteDatasetForm, setRemoteDatasetForm] = useState({
+    project_slug: "orquestra-lab",
+    name: "approved-memory-bundle",
+    approved_only: true,
+    max_records: 120
+  });
+  const [remoteRunForm, setRemoteRunForm] = useState({
+    name: "research-adapter-run",
+    summary: "Fine-tuning remoto adapter-first a partir de memória aprovada e sinais de treino.",
+    base_model_id: "",
+    dataset_bundle_id: ""
+  });
+  const [remoteReviewForm, setRemoteReviewForm] = useState({
+    candidate_artifact_id: "",
+    baseline_mode: "lmstudio_local",
+    baseline_provider_id: "lmstudio",
+    baseline_model_name: "",
+    prompt_blob: "Resuma as memórias mais relevantes para continuidade do projeto.\nCompare a eficácia do modelo treinado para responder com contexto operacional."
+  });
 
   const [selectedRunId, setSelectedRunId] = useState("");
   const [selectedRun, setSelectedRun] = useState<OpsRun | null>(null);
@@ -424,10 +516,85 @@ export default function App() {
     setSelectedWorkflow(payload);
   }
 
+  async function refreshRemoteTrainPlane(syncForm = false) {
+    const configPayload = await getRemoteTrainPlaneConfig();
+    setRemoteTrainPlaneConfig(configPayload);
+    if (syncForm || !remoteTrainPlaneConfig) {
+      setTrainPlaneForm((current) => ({
+        ...current,
+        base_url: configPayload.base_url || current.base_url,
+        region: configPayload.region || current.region,
+        instance_id: configPayload.instance_id || "",
+        bucket: configPayload.bucket || "",
+        ssm_enabled: configPayload.ssm_enabled,
+        default_training_profile: JSON.stringify(configPayload.default_training_profile ?? {}, null, 2),
+        default_serving_profile: JSON.stringify(configPayload.default_serving_profile ?? {}, null, 2)
+      }));
+    }
+
+    if (!configPayload.base_url || !configPayload.token_configured) {
+      setRemoteBaseModels([]);
+      setRemoteDatasetBundles([]);
+      setRemoteTrainRuns([]);
+      setRemoteArtifacts([]);
+      setRemoteEvaluations([]);
+      setRemoteComparisons([]);
+      setSelectedRemoteTrainRunId("");
+      setSelectedRemoteTrainRun(null);
+      return;
+    }
+
+    const [baseModelsPayload, datasetBundlesPayload, runsPayload, artifactsPayload, evaluationsPayload, comparisonsPayload] = await Promise.all([
+      listRemoteTrainPlaneBaseModels(),
+      listRemoteTrainPlaneDatasetBundles(),
+      listRemoteTrainPlaneRuns(selectedProjectId || undefined),
+      listRemoteTrainPlaneArtifacts(selectedProjectId || undefined),
+      listRemoteTrainPlaneEvaluations(),
+      listRemoteTrainPlaneComparisons()
+    ]);
+
+    setRemoteBaseModels(baseModelsPayload);
+    setRemoteDatasetBundles(datasetBundlesPayload);
+    setRemoteTrainRuns(runsPayload);
+    setRemoteArtifacts(artifactsPayload);
+    setRemoteEvaluations(evaluationsPayload);
+    setRemoteComparisons(comparisonsPayload);
+    setRemoteRunForm((current) => ({
+      ...current,
+      base_model_id: current.base_model_id || baseModelsPayload[0]?.id || "",
+      dataset_bundle_id: current.dataset_bundle_id || datasetBundlesPayload[0]?.id || ""
+    }));
+
+    const nextRunId = runsPayload.find((item) => item.id === selectedRemoteTrainRunId)?.id ?? runsPayload[0]?.id ?? "";
+    setSelectedRemoteTrainRunId(nextRunId);
+    if (!remoteReviewForm.candidate_artifact_id && artifactsPayload[0]?.id) {
+      setRemoteReviewForm((current) => ({ ...current, candidate_artifact_id: artifactsPayload[0].id }));
+    }
+  }
+
+  async function refreshRemoteTrainPlaneRun(runId: string) {
+    if (!runId) {
+      setSelectedRemoteTrainRun(null);
+      return;
+    }
+    const payload = await getRemoteTrainPlaneRun(runId, selectedProjectId || undefined);
+    setSelectedRemoteTrainRun(payload);
+    if (payload.artifact?.id) {
+      setRemoteReviewForm((current) => ({
+        ...current,
+        candidate_artifact_id: current.candidate_artifact_id || payload.artifact?.id || ""
+      }));
+    }
+  }
+
   useEffect(() => {
     refreshGlobal()
       .then(() => setStatusLine("Bootstrap do dashboard operacional concluído."))
       .catch((error) => setStatusLine(`Falha no bootstrap: ${String(error)}`));
+  }, []);
+
+  useEffect(() => {
+    refreshRemoteTrainPlane(true).catch((error) => setStatusLine(`Falha ao carregar Train Plane remoto: ${String(error)}`));
   }, []);
 
   useEffect(() => {
@@ -495,6 +662,26 @@ export default function App() {
     }, 12000);
     return () => window.clearInterval(interval);
   }, [view, selectedProjectId]);
+
+  useEffect(() => {
+    if (view !== "dashboard" && view !== "execution") return;
+    const interval = window.setInterval(() => {
+      refreshRemoteTrainPlane().catch(() => undefined);
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [view, selectedProjectId]);
+
+  useEffect(() => {
+    if (!selectedRemoteTrainRunId) {
+      setSelectedRemoteTrainRun(null);
+      return;
+    }
+    refreshRemoteTrainPlaneRun(selectedRemoteTrainRunId).catch((error) => setStatusLine(`Falha ao carregar run remoto: ${String(error)}`));
+    const interval = window.setInterval(() => {
+      refreshRemoteTrainPlaneRun(selectedRemoteTrainRunId).catch(() => undefined);
+    }, 3500);
+    return () => window.clearInterval(interval);
+  }, [selectedRemoteTrainRunId, selectedProjectId]);
 
   function openSessionSetup() {
     setSessionSetup(defaultSessionProfile("research"));
@@ -1090,6 +1277,176 @@ export default function App() {
       await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha ao registrar deploy: ${String(error)}`);
+    }
+  }
+
+  async function handleSaveRemoteTrainPlaneConfig() {
+    try {
+      const payload = await updateRemoteTrainPlaneConfig({
+        base_url: trainPlaneForm.base_url.trim(),
+        token: trainPlaneForm.token.trim() || undefined,
+        region: trainPlaneForm.region.trim(),
+        instance_id: trainPlaneForm.instance_id.trim(),
+        bucket: trainPlaneForm.bucket.trim(),
+        ssm_enabled: trainPlaneForm.ssm_enabled,
+        default_training_profile: safeJsonParse<Record<string, unknown>>(trainPlaneForm.default_training_profile, {}),
+        default_serving_profile: safeJsonParse<Record<string, unknown>>(trainPlaneForm.default_serving_profile, {}),
+        metadata: { updated_from: "execution_center" }
+      });
+      setRemoteTrainPlaneConfig(payload);
+      setTrainPlaneForm((current) => ({ ...current, token: "" }));
+      setStatusLine("Configuração do Remote Train Plane salva.");
+      await refreshRemoteTrainPlane(true);
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao salvar configuração do Train Plane: ${String(error)}`);
+    }
+  }
+
+  async function handleTestRemoteTrainPlaneConnection() {
+    try {
+      const payload = await testRemoteTrainPlaneConnection();
+      setRemoteTrainPlaneConnection(payload);
+      setStatusLine(payload.ok ? "Remote Train Plane respondeu ao teste de conexão." : `Train Plane indisponível: ${payload.error || "erro desconhecido"}`);
+      if (payload.ok) {
+        await refreshRemoteTrainPlane(true);
+      }
+    } catch (error) {
+      setStatusLine(`Falha ao testar conexão do Train Plane: ${String(error)}`);
+    }
+  }
+
+  async function handleSyncRemoteBaseModel() {
+    try {
+      const payload = await syncRemoteTrainPlaneBaseModel({
+        project_id: selectedProjectId || undefined,
+        name: remoteBaseModelForm.name,
+        source_kind: remoteBaseModelForm.source_kind,
+        source_ref: remoteBaseModelForm.source_ref,
+        local_path: remoteBaseModelForm.local_path,
+        format: remoteBaseModelForm.format,
+        metadata: { synced_from: "execution_center" }
+      });
+      setStatusLine(`Base model sincronizado: ${payload.name}.`);
+      await refreshRemoteTrainPlane();
+    } catch (error) {
+      setStatusLine(`Falha ao sincronizar base model: ${String(error)}`);
+    }
+  }
+
+  async function handleSyncRemoteDatasetBundle() {
+    try {
+      const payload = await syncRemoteTrainPlaneDatasetBundle({
+        project_id: selectedProjectId || undefined,
+        session_id: selectedSessionId || undefined,
+        project_slug: remoteDatasetForm.project_slug || selectedProject?.slug || "",
+        name: remoteDatasetForm.name,
+        approved_only: remoteDatasetForm.approved_only,
+        max_records: remoteDatasetForm.max_records,
+        metadata: { synced_from: "execution_center" }
+      });
+      setStatusLine(`Dataset bundle sincronizado: ${payload.name} com ${payload.record_count} registros.`);
+      await refreshRemoteTrainPlane();
+    } catch (error) {
+      setStatusLine(`Falha ao sincronizar dataset bundle: ${String(error)}`);
+    }
+  }
+
+  async function handleCreateRemoteTrainRun() {
+    const baseModelId = remoteRunForm.base_model_id || remoteBaseModels[0]?.id;
+    const datasetBundleId = remoteRunForm.dataset_bundle_id || remoteDatasetBundles[0]?.id;
+    if (!baseModelId || !datasetBundleId) {
+      setStatusLine("Sincronize pelo menos um base model e um dataset bundle antes de iniciar o treino remoto.");
+      return;
+    }
+    try {
+      const payload = await createRemoteTrainPlaneRun({
+        project_id: selectedProjectId || undefined,
+        project_slug: selectedProject?.slug || remoteDatasetForm.project_slug,
+        name: remoteRunForm.name,
+        base_model_id: baseModelId,
+        dataset_bundle_id: datasetBundleId,
+        summary: remoteRunForm.summary,
+        training_profile: safeJsonParse<Record<string, unknown>>(trainPlaneForm.default_training_profile, {})
+      });
+      setSelectedRemoteTrainRunId(payload.id);
+      setStatusLine(`Training run remoto criado: ${payload.name}.`);
+      await refreshRemoteTrainPlane();
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao criar training run remoto: ${String(error)}`);
+    }
+  }
+
+  async function handleCancelRemoteTrainRun() {
+    if (!selectedRemoteTrainRunId) return;
+    try {
+      const payload = await cancelRemoteTrainPlaneRun(selectedRemoteTrainRunId, selectedProjectId || undefined);
+      setSelectedRemoteTrainRun(payload);
+      setStatusLine("Cancelamento solicitado para o training run remoto.");
+      await refreshRemoteTrainPlane();
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao cancelar training run remoto: ${String(error)}`);
+    }
+  }
+
+  async function handleRemoteArtifactAction(artifactId: string, action: "merge" | "promote") {
+    try {
+      if (action === "merge") {
+        await mergeRemoteTrainPlaneArtifact(artifactId, selectedProjectId || undefined);
+        setStatusLine("Merge do artefato remoto solicitado.");
+      } else {
+        await promoteRemoteTrainPlaneArtifact(artifactId, selectedProjectId || undefined);
+        setStatusLine("Artefato remoto promovido para o registry.");
+      }
+      await refreshRemoteTrainPlane();
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha na ação do artefato remoto: ${String(error)}`);
+    }
+  }
+
+  async function handleRemoteReview(kind: "evaluation" | "comparison") {
+    if (!remoteReviewForm.candidate_artifact_id) {
+      setStatusLine("Selecione um artefato remoto para avaliar ou comparar.");
+      return;
+    }
+    const prompts = remoteReviewForm.prompt_blob
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    try {
+      if (kind === "evaluation") {
+        const payload = await createRemoteTrainPlaneEvaluation({
+          project_id: selectedProjectId || undefined,
+          session_id: selectedSessionId || undefined,
+          candidate_artifact_id: remoteReviewForm.candidate_artifact_id,
+          baseline_mode: remoteReviewForm.baseline_mode,
+          baseline_provider_id: remoteReviewForm.baseline_provider_id || undefined,
+          baseline_model_name: remoteReviewForm.baseline_model_name || undefined,
+          suite_name: "orquestra-eval-lab",
+          prompts,
+          metadata: { created_from: "execution_center" }
+        });
+        setStatusLine(`Evaluation run remoto criado: ${payload.suite_name}.`);
+      } else {
+        const payload = await createRemoteTrainPlaneComparison({
+          project_id: selectedProjectId || undefined,
+          session_id: selectedSessionId || undefined,
+          candidate_artifact_id: remoteReviewForm.candidate_artifact_id,
+          baseline_mode: remoteReviewForm.baseline_mode,
+          baseline_provider_id: remoteReviewForm.baseline_provider_id || undefined,
+          baseline_model_name: remoteReviewForm.baseline_model_name || undefined,
+          prompt_set_name: "orquestra-compare-lab",
+          prompts,
+          metadata: { created_from: "execution_center" }
+        });
+        setStatusLine(`Comparison run remoto criado: ${payload.prompt_set_name}.`);
+      }
+      await refreshRemoteTrainPlane();
+    } catch (error) {
+      setStatusLine(`Falha ao rodar ${kind === "evaluation" ? "evaluation" : "comparison"} remoto: ${String(error)}`);
     }
   }
 
@@ -1816,6 +2173,368 @@ export default function App() {
                         <p>{ragResult.answer}</p>
                       </article>
                     )}
+                  </div>
+                </section>
+
+                <section className="panel">
+                  <div className="panel-head">
+                    <div>
+                      <p className="eyebrow">Remote Train Plane</p>
+                      <h3>EC2 train plane, avaliação comparativa e promotion lab</h3>
+                    </div>
+                    <div className="composer-actions">
+                      <button type="button" className="ghost-button" onClick={handleTestRemoteTrainPlaneConnection}>
+                        Testar conexão
+                      </button>
+                      <button type="button" className="primary-button" onClick={handleSaveRemoteTrainPlaneConfig}>
+                        Salvar acesso
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="two-column-panel">
+                    <div>
+                      <div className="panel-head slim">
+                        <div>
+                          <p className="eyebrow">Access & config</p>
+                          <h3>Endpoint, token e defaults operacionais</h3>
+                        </div>
+                      </div>
+                      <div className="split-form">
+                        <label>
+                          Base URL
+                          <input value={trainPlaneForm.base_url} onChange={(event) => setTrainPlaneForm((current) => ({ ...current, base_url: event.target.value }))} />
+                        </label>
+                        <label>
+                          Token
+                          <input value={trainPlaneForm.token} onChange={(event) => setTrainPlaneForm((current) => ({ ...current, token: event.target.value }))} placeholder="PAT do Train Plane" />
+                        </label>
+                        <label>
+                          Região AWS
+                          <input value={trainPlaneForm.region} onChange={(event) => setTrainPlaneForm((current) => ({ ...current, region: event.target.value }))} />
+                        </label>
+                        <label>
+                          Instance ID
+                          <input value={trainPlaneForm.instance_id} onChange={(event) => setTrainPlaneForm((current) => ({ ...current, instance_id: event.target.value }))} />
+                        </label>
+                        <label>
+                          Bucket
+                          <input value={trainPlaneForm.bucket} onChange={(event) => setTrainPlaneForm((current) => ({ ...current, bucket: event.target.value }))} />
+                        </label>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={trainPlaneForm.ssm_enabled}
+                            onChange={(event) => setTrainPlaneForm((current) => ({ ...current, ssm_enabled: event.target.checked }))}
+                          />
+                          <span>usar SSM / Session Manager</span>
+                        </label>
+                      </div>
+                      <div className="form-stack">
+                        <label className="full-label">
+                          Default training profile (JSON)
+                          <textarea value={trainPlaneForm.default_training_profile} onChange={(event) => setTrainPlaneForm((current) => ({ ...current, default_training_profile: event.target.value }))} />
+                        </label>
+                        <label className="full-label">
+                          Default serving profile (JSON)
+                          <textarea value={trainPlaneForm.default_serving_profile} onChange={(event) => setTrainPlaneForm((current) => ({ ...current, default_serving_profile: event.target.value }))} />
+                        </label>
+                      </div>
+                      <div className="context-list">
+                        <span><strong>Token:</strong> {remoteTrainPlaneConfig?.token_configured ? "configurado" : "ausente"}</span>
+                        <span><strong>Base:</strong> {remoteTrainPlaneConfig?.base_url || "não configurada"}</span>
+                        <span><strong>Conexão:</strong> {remoteTrainPlaneConnection?.ok ? "online" : remoteTrainPlaneConnection?.error || "não testada"}</span>
+                        <span><strong>SSM:</strong> {remoteTrainPlaneConfig?.ssm_enabled ? "ativo" : "desligado"}</span>
+                      </div>
+                      {remoteTrainPlaneConnection?.health && (
+                        <pre className="preview-text compact">
+                          {JSON.stringify(remoteTrainPlaneConnection.health, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="panel-head slim">
+                        <div>
+                          <p className="eyebrow">Base models & datasets</p>
+                          <h3>Sync local para o train plane</h3>
+                        </div>
+                      </div>
+                      <div className="split-form">
+                        <label>
+                          Nome do base model
+                          <input value={remoteBaseModelForm.name} onChange={(event) => setRemoteBaseModelForm((current) => ({ ...current, name: event.target.value }))} />
+                        </label>
+                        <label>
+                          Source kind
+                          <select value={remoteBaseModelForm.source_kind} onChange={(event) => setRemoteBaseModelForm((current) => ({ ...current, source_kind: event.target.value }))}>
+                            <option value="huggingface_ref">huggingface_ref</option>
+                            <option value="uploaded_bundle">uploaded_bundle</option>
+                          </select>
+                        </label>
+                        <label>
+                          Hugging Face ref / URI
+                          <input value={remoteBaseModelForm.source_ref} onChange={(event) => setRemoteBaseModelForm((current) => ({ ...current, source_ref: event.target.value }))} />
+                        </label>
+                        <label>
+                          Caminho local opcional
+                          <input value={remoteBaseModelForm.local_path} onChange={(event) => setRemoteBaseModelForm((current) => ({ ...current, local_path: event.target.value }))} />
+                        </label>
+                      </div>
+                      <div className="composer-actions">
+                        <button type="button" className="ghost-button" onClick={handleSyncRemoteBaseModel}>
+                          Sincronizar base model
+                        </button>
+                      </div>
+
+                      <div className="split-form">
+                        <label>
+                          Project slug
+                          <input value={remoteDatasetForm.project_slug} onChange={(event) => setRemoteDatasetForm((current) => ({ ...current, project_slug: event.target.value }))} />
+                        </label>
+                        <label>
+                          Dataset bundle name
+                          <input value={remoteDatasetForm.name} onChange={(event) => setRemoteDatasetForm((current) => ({ ...current, name: event.target.value }))} />
+                        </label>
+                        <label>
+                          Max records
+                          <input
+                            type="number"
+                            value={remoteDatasetForm.max_records}
+                            onChange={(event) => setRemoteDatasetForm((current) => ({ ...current, max_records: Number(event.target.value || 0) }))}
+                          />
+                        </label>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={remoteDatasetForm.approved_only}
+                            onChange={(event) => setRemoteDatasetForm((current) => ({ ...current, approved_only: event.target.checked }))}
+                          />
+                          <span>apenas aprovados</span>
+                        </label>
+                      </div>
+                      <div className="composer-actions">
+                        <button type="button" className="primary-button" onClick={handleSyncRemoteDatasetBundle}>
+                          Exportar dataset bundle
+                        </button>
+                      </div>
+
+                      <div className="provider-grid">
+                        {remoteBaseModels.map((item) => (
+                          <article key={item.id} className="provider-card">
+                            <strong>{item.name}</strong>
+                            <span>{item.source_kind}</span>
+                            <p>{compactText(item.source_ref || item.storage_uri, 96)}</p>
+                          </article>
+                        ))}
+                      </div>
+                      <div className="provider-grid">
+                        {remoteDatasetBundles.map((item) => (
+                          <article key={item.id} className="provider-card">
+                            <strong>{item.name}</strong>
+                            <span>{item.record_count} registros</span>
+                            <p>{item.project_slug}</p>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="two-column-panel">
+                    <div>
+                      <div className="panel-head slim">
+                        <div>
+                          <p className="eyebrow">Training runs</p>
+                          <h3>Fila, progresso e checkpoints remotos</h3>
+                        </div>
+                        <div className="composer-actions">
+                          <button type="button" className="ghost-button" onClick={handleCreateRemoteTrainRun}>
+                            Criar run
+                          </button>
+                          <button type="button" className="ghost-button" onClick={handleCancelRemoteTrainRun} disabled={!selectedRemoteTrainRunId || selectedRemoteTrainRun?.status !== "running"}>
+                            Cancelar run
+                          </button>
+                        </div>
+                      </div>
+                      <div className="form-stack">
+                        <input value={remoteRunForm.name} onChange={(event) => setRemoteRunForm((current) => ({ ...current, name: event.target.value }))} />
+                        <div className="split-form">
+                          <label>
+                            Base model
+                            <select value={remoteRunForm.base_model_id} onChange={(event) => setRemoteRunForm((current) => ({ ...current, base_model_id: event.target.value }))}>
+                              <option value="">Selecione</option>
+                              {remoteBaseModels.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Dataset bundle
+                            <select value={remoteRunForm.dataset_bundle_id} onChange={(event) => setRemoteRunForm((current) => ({ ...current, dataset_bundle_id: event.target.value }))}>
+                              <option value="">Selecione</option>
+                              {remoteDatasetBundles.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                        <textarea value={remoteRunForm.summary} onChange={(event) => setRemoteRunForm((current) => ({ ...current, summary: event.target.value }))} />
+                      </div>
+                      <div className="run-grid">
+                        {remoteTrainRuns.map((run) => (
+                          <button
+                            key={run.id}
+                            type="button"
+                            className={selectedRemoteTrainRunId === run.id ? "job-row active" : "job-row"}
+                            onClick={() => setSelectedRemoteTrainRunId(run.id)}
+                          >
+                            <strong>{run.name}</strong>
+                            <span>{run.status}</span>
+                            <small>{run.project_slug}</small>
+                            <small>{run.current_step}/{run.total_steps || 0} passos</small>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="context-list">
+                        <span><strong>Status:</strong> {selectedRemoteTrainRun?.status || "idle"}</span>
+                        <span><strong>Progresso:</strong> {selectedRemoteTrainRun ? `${selectedRemoteTrainRun.current_step}/${selectedRemoteTrainRun.total_steps || 0}` : "-"}</span>
+                        <span><strong>Logs:</strong> {selectedRemoteTrainRun?.logs_path || "-"}</span>
+                        <span><strong>Artefato:</strong> {selectedRemoteTrainRun?.artifact?.name || selectedRemoteTrainRun?.artifact_id || "pendente"}</span>
+                      </div>
+                      <svg viewBox="0 0 340 120" preserveAspectRatio="none" style={{ width: "100%", height: 120, background: "rgba(247, 234, 205, 0.38)", borderRadius: 16 }}>
+                        <polyline
+                          fill="none"
+                          stroke="#0d6b5f"
+                          strokeWidth="4"
+                          points={buildSparklinePoints((selectedRemoteTrainRun?.metrics ?? []).map((item) => Number(item.loss || 0)).filter((value) => Number.isFinite(value)))}
+                        />
+                      </svg>
+                      <pre className="preview-text compact">
+                        {selectedRemoteTrainRun
+                          ? JSON.stringify(
+                              {
+                                output: selectedRemoteTrainRun.output,
+                                checkpoints: selectedRemoteTrainRun.checkpoints.map((item) => ({
+                                  label: item.label,
+                                  step_index: item.step_index,
+                                  storage_uri: item.storage_uri
+                                }))
+                              },
+                              null,
+                              2
+                            )
+                          : "Selecione um training run remoto para acompanhar a evolução."}
+                      </pre>
+                    </div>
+
+                    <div>
+                      <div className="panel-head slim">
+                        <div>
+                          <p className="eyebrow">Evaluation lab</p>
+                          <h3>Artifacts, benchmark e comparação baseline vs candidate</h3>
+                        </div>
+                      </div>
+                      <div className="split-form">
+                        <label>
+                          Candidate artifact
+                          <select
+                            value={remoteReviewForm.candidate_artifact_id}
+                            onChange={(event) => setRemoteReviewForm((current) => ({ ...current, candidate_artifact_id: event.target.value }))}
+                          >
+                            <option value="">Selecione</option>
+                            {remoteArtifacts.map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Baseline mode
+                          <select value={remoteReviewForm.baseline_mode} onChange={(event) => setRemoteReviewForm((current) => ({ ...current, baseline_mode: event.target.value }))}>
+                            <option value="lmstudio_local">lmstudio_local</option>
+                            <option value="provider_api">provider_api</option>
+                            <option value="trainplane_artifact">trainplane_artifact</option>
+                          </select>
+                        </label>
+                        <label>
+                          Provider baseline
+                          <input value={remoteReviewForm.baseline_provider_id} onChange={(event) => setRemoteReviewForm((current) => ({ ...current, baseline_provider_id: event.target.value }))} />
+                        </label>
+                        <label>
+                          Modelo baseline
+                          <input value={remoteReviewForm.baseline_model_name} onChange={(event) => setRemoteReviewForm((current) => ({ ...current, baseline_model_name: event.target.value }))} />
+                        </label>
+                      </div>
+                      <div className="form-stack">
+                        <textarea value={remoteReviewForm.prompt_blob} onChange={(event) => setRemoteReviewForm((current) => ({ ...current, prompt_blob: event.target.value }))} />
+                        <div className="composer-actions">
+                          <button type="button" className="ghost-button" onClick={() => handleRemoteReview("evaluation")}>
+                            Rodar evaluation
+                          </button>
+                          <button type="button" className="primary-button" onClick={() => handleRemoteReview("comparison")}>
+                            Rodar comparison
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="provider-grid">
+                        {remoteArtifacts.map((item) => (
+                          <article key={item.id} className="provider-card">
+                            <strong>{item.name}</strong>
+                            <span>{item.format}</span>
+                            <p>{compactText(item.storage_uri, 96)}</p>
+                            <div className="composer-actions">
+                              <button type="button" className="ghost-button" onClick={() => handleRemoteArtifactAction(item.id, "merge")}>
+                                Merge
+                              </button>
+                              <button type="button" className="primary-button" onClick={() => handleRemoteArtifactAction(item.id, "promote")}>
+                                Promote
+                              </button>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+
+                      <div className="compare-grid">
+                        <article className="result-panel">
+                          <h4>Evaluations</h4>
+                          <pre className="preview-text compact">
+                            {remoteEvaluations.length
+                              ? JSON.stringify(
+                                  remoteEvaluations.slice(0, 3).map((item) => ({
+                                    suite: item.suite_name,
+                                    status: item.status,
+                                    scores: item.summary_scores
+                                  })),
+                                  null,
+                                  2
+                                )
+                              : "Sem evaluation runs ainda."}
+                          </pre>
+                        </article>
+                        <article className="result-panel">
+                          <h4>Comparisons</h4>
+                          <pre className="preview-text compact">
+                            {remoteComparisons.length
+                              ? JSON.stringify(
+                                  remoteComparisons.slice(0, 3).map((item) => ({
+                                    prompt_set_name: item.prompt_set_name,
+                                    status: item.status,
+                                    scores: item.summary_scores
+                                  })),
+                                  null,
+                                  2
+                                )
+                              : "Sem comparison runs ainda."}
+                          </pre>
+                        </article>
+                      </div>
+                    </div>
                   </div>
                 </section>
               </div>

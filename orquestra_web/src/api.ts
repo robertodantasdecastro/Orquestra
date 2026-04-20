@@ -445,6 +445,159 @@ export type ModelArtifact = {
   created_at: string;
 };
 
+export type RemoteTrainPlaneConfig = {
+  id: string;
+  base_url: string;
+  region: string;
+  instance_id: string;
+  bucket: string;
+  ssm_enabled: boolean;
+  token_configured: boolean;
+  token_keychain_service: string;
+  default_training_profile: Record<string, unknown>;
+  default_serving_profile: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RemoteBaseModel = {
+  id: string;
+  name: string;
+  source_kind: string;
+  source_ref: string;
+  storage_uri: string;
+  size_bytes: number;
+  checksum_sha256: string;
+  format: string;
+  status: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RemoteDatasetBundle = {
+  id: string;
+  project_slug: string;
+  name: string;
+  source: string;
+  storage_uri: string;
+  record_count: number;
+  stats: Record<string, unknown>;
+  schema_version: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RemoteTrainingMetricPoint = {
+  id: string;
+  run_id: string;
+  step_index: number;
+  epoch: number;
+  loss: number;
+  eval_loss: number;
+  learning_rate: number;
+  grad_norm: number;
+  gpu_util: number;
+  gpu_mem_gb: number;
+  gpu_temp_c: number;
+  cpu_percent: number;
+  ram_percent: number;
+  disk_percent: number;
+  network_mbps: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type RemoteTrainingCheckpoint = {
+  id: string;
+  run_id: string;
+  step_index: number;
+  label: string;
+  storage_uri: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type RemoteArtifact = {
+  id: string;
+  run_id?: string | null;
+  name: string;
+  artifact_type: string;
+  base_model_name: string;
+  storage_uri: string;
+  format: string;
+  status: string;
+  benchmark: Record<string, unknown>;
+  serving_endpoint: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  mirrored_artifact_id?: string;
+};
+
+export type RemoteTrainingRun = {
+  id: string;
+  project_slug: string;
+  name: string;
+  base_model_id: string;
+  dataset_bundle_id: string;
+  status: string;
+  summary: string;
+  profile: Record<string, unknown>;
+  logs_path: string;
+  artifact_id?: string | null;
+  output: Record<string, unknown>;
+  current_step: number;
+  total_steps: number;
+  cancel_requested: boolean;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  metrics: RemoteTrainingMetricPoint[];
+  checkpoints: RemoteTrainingCheckpoint[];
+  artifact?: RemoteArtifact | null;
+  mirrored_job_id?: string;
+  mirrored_artifact_id?: string;
+};
+
+export type RemoteEvaluationRun = {
+  id: string;
+  candidate_artifact_id: string;
+  baseline_mode: string;
+  baseline_ref: string;
+  suite_name: string;
+  status: string;
+  summary_scores: Record<string, number>;
+  results: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RemoteComparisonRun = {
+  id: string;
+  candidate_artifact_id: string;
+  baseline_mode: string;
+  baseline_ref: string;
+  prompt_set_name: string;
+  status: string;
+  summary_scores: Record<string, number>;
+  cases: Array<Record<string, unknown>>;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RemoteTrainPlaneConnectionState = {
+  ok: boolean;
+  config: RemoteTrainPlaneConfig;
+  health?: Record<string, unknown>;
+  error?: string;
+};
+
 export type ConnectorDescriptor = {
   connector_id: string;
   label: string;
@@ -971,6 +1124,166 @@ export async function createJob(kind: "training" | "remote", payload: { project_
 
 export async function getRemoteJobLogs(jobId: string) {
   return request<{ job_id: string; logs_path?: string | null; content: string }>(`/api/remote/jobs/${jobId}/logs`);
+}
+
+export async function getRemoteTrainPlaneConfig() {
+  return request<RemoteTrainPlaneConfig>("/api/remote/trainplane/config");
+}
+
+export async function updateRemoteTrainPlaneConfig(payload: {
+  base_url: string;
+  token?: string | null;
+  region?: string;
+  instance_id?: string;
+  bucket?: string;
+  ssm_enabled?: boolean;
+  default_training_profile?: Record<string, unknown>;
+  default_serving_profile?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<RemoteTrainPlaneConfig>("/api/remote/trainplane/config", {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function testRemoteTrainPlaneConnection() {
+  return request<RemoteTrainPlaneConnectionState>("/api/remote/trainplane/test-connection", { method: "POST" });
+}
+
+export async function listRemoteTrainPlaneBaseModels() {
+  return request<RemoteBaseModel[]>("/api/remote/trainplane/base-models");
+}
+
+export async function syncRemoteTrainPlaneBaseModel(payload: {
+  project_id?: string | null;
+  name: string;
+  source_kind?: string;
+  source_ref?: string;
+  local_path?: string;
+  format?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<RemoteBaseModel>("/api/remote/trainplane/sync/base-model", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function listRemoteTrainPlaneDatasetBundles() {
+  return request<RemoteDatasetBundle[]>("/api/remote/trainplane/dataset-bundles");
+}
+
+export async function syncRemoteTrainPlaneDatasetBundle(payload: {
+  project_id?: string | null;
+  session_id?: string | null;
+  project_slug?: string;
+  name?: string;
+  approved_only?: boolean;
+  max_records?: number;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<RemoteDatasetBundle>("/api/remote/trainplane/sync/dataset-bundle", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function listRemoteTrainPlaneRuns(projectId?: string) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request<RemoteTrainingRun[]>(`/api/remote/trainplane/runs${query}`);
+}
+
+export async function getRemoteTrainPlaneRun(runId: string, projectId?: string) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request<RemoteTrainingRun>(`/api/remote/trainplane/runs/${runId}${query}`);
+}
+
+export async function createRemoteTrainPlaneRun(payload: {
+  project_id?: string | null;
+  project_slug?: string;
+  name: string;
+  base_model_id: string;
+  dataset_bundle_id: string;
+  summary?: string;
+  training_profile?: Record<string, unknown>;
+}) {
+  return request<RemoteTrainingRun>("/api/remote/trainplane/runs", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function cancelRemoteTrainPlaneRun(runId: string, projectId?: string) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request<RemoteTrainingRun>(`/api/remote/trainplane/runs/${runId}/cancel${query}`, {
+    method: "POST"
+  });
+}
+
+export async function listRemoteTrainPlaneArtifacts(projectId?: string) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request<RemoteArtifact[]>(`/api/remote/trainplane/artifacts${query}`);
+}
+
+export async function mergeRemoteTrainPlaneArtifact(artifactId: string, projectId?: string) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request<RemoteArtifact>(`/api/remote/trainplane/artifacts/${artifactId}/merge${query}`, {
+    method: "POST"
+  });
+}
+
+export async function promoteRemoteTrainPlaneArtifact(artifactId: string, projectId?: string) {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request<RemoteArtifact>(`/api/remote/trainplane/artifacts/${artifactId}/promote${query}`, {
+    method: "POST"
+  });
+}
+
+export async function listRemoteTrainPlaneEvaluations() {
+  return request<RemoteEvaluationRun[]>("/api/remote/trainplane/evaluations");
+}
+
+export async function createRemoteTrainPlaneEvaluation(payload: {
+  project_id?: string | null;
+  session_id?: string | null;
+  candidate_artifact_id: string;
+  baseline_mode: string;
+  baseline_ref?: string;
+  baseline_provider_id?: string | null;
+  baseline_model_name?: string | null;
+  suite_name?: string;
+  prompts?: string[];
+  cases?: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<RemoteEvaluationRun>("/api/remote/trainplane/evaluations", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function listRemoteTrainPlaneComparisons() {
+  return request<RemoteComparisonRun[]>("/api/remote/trainplane/comparisons");
+}
+
+export async function createRemoteTrainPlaneComparison(payload: {
+  project_id?: string | null;
+  session_id?: string | null;
+  candidate_artifact_id: string;
+  baseline_mode: string;
+  baseline_ref?: string;
+  baseline_provider_id?: string | null;
+  baseline_model_name?: string | null;
+  prompt_set_name?: string;
+  prompts?: string[];
+  cases?: Array<Record<string, unknown>>;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<RemoteComparisonRun>("/api/remote/trainplane/comparisons", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function listRegistryModels() {

@@ -23,6 +23,19 @@ O backend:
 - executa bootstrap de runtime por `lifespan`
 - expõe saude, dashboard e endpoints de produto
 
+### Train Plane remoto
+- `orquestra_trainplane/app.py`
+- `orquestra_trainplane/worker.py`
+- `orquestra_trainplane/models.py`
+- `orquestra_trainplane/services.py`
+
+O servico remoto:
+- expõe auth por bootstrap admin + `TOTP` + `PAT`
+- recebe `base models` e `dataset bundles`
+- executa `training runs` adapter-first em modo validavel
+- publica `artifacts`, `evaluation runs` e `comparison runs`
+- serve um console web remoto simplificado para operacao e inspeção
+
 ### Gateway de modelos
 - `orquestra_ai/gateway.py`
 
@@ -53,6 +66,8 @@ Providers suportados:
 - `orquestra_web/src/App.tsx`
 - `orquestra_web/src/api.ts`
 - `orquestra_web/src-tauri/`
+
+O frontend agora tambem incorpora o bloco `Remote Train Plane` dentro do `Execution Center`.
 
 ## Superficies da interface
 As areas de produto usadas hoje pelo shell web/desktop sao:
@@ -228,6 +243,50 @@ Ao aprovar um `MemoryReviewCandidate`, o sistema cria:
 - `GET /api/workflows/runs/{run_id}`
 - `POST /api/workflows/runs`
 - `POST /api/workflows/runs/{run_id}/cancel`
+
+### Train Plane remoto via Orquestra local
+- `GET /api/remote/trainplane/config`
+- `PUT /api/remote/trainplane/config`
+- `POST /api/remote/trainplane/test-connection`
+- `GET /api/remote/trainplane/base-models`
+- `POST /api/remote/trainplane/sync/base-model`
+- `GET /api/remote/trainplane/dataset-bundles`
+- `POST /api/remote/trainplane/sync/dataset-bundle`
+- `GET /api/remote/trainplane/runs`
+- `POST /api/remote/trainplane/runs`
+- `GET /api/remote/trainplane/runs/{run_id}`
+- `POST /api/remote/trainplane/runs/{run_id}/cancel`
+- `GET /api/remote/trainplane/runs/{run_id}/stream`
+- `GET /api/remote/trainplane/artifacts`
+- `POST /api/remote/trainplane/artifacts/{artifact_id}/merge`
+- `POST /api/remote/trainplane/artifacts/{artifact_id}/promote`
+- `GET /api/remote/trainplane/evaluations`
+- `POST /api/remote/trainplane/evaluations`
+- `GET /api/remote/trainplane/comparisons`
+- `POST /api/remote/trainplane/comparisons`
+
+### API publica do servico remoto `orquestra_trainplane`
+- `POST /api/auth/bootstrap`
+- `POST /api/auth/login`
+- `POST /api/base-models/upload/init`
+- `POST /api/base-models/upload/complete`
+- `GET /api/base-models`
+- `POST /api/dataset-bundles`
+- `GET /api/dataset-bundles`
+- `POST /api/training-runs`
+- `GET /api/training-runs`
+- `GET /api/training-runs/{run_id}`
+- `POST /api/training-runs/{run_id}/cancel`
+- `GET /api/training-runs/{run_id}/events`
+- `GET /api/artifacts`
+- `POST /api/artifacts/{artifact_id}/merge`
+- `POST /api/artifacts/{artifact_id}/promote`
+- `POST /api/evaluation-runs`
+- `GET /api/evaluation-runs`
+- `GET /api/evaluation-runs/{run_id}`
+- `POST /api/comparison-runs`
+- `GET /api/comparison-runs`
+- `GET /api/comparison-runs/{run_id}`
 
 ### Providers, modelos e projetos
 - `GET /api/providers`

@@ -8,6 +8,8 @@ const SESSION_ID = "session-1";
 const WORKFLOW_ID = "workflow-1";
 const TASK_ID = "task-1";
 const TASK_DEP_ID = "task-2";
+const REMOTE_RUN_ID = "remote-run-1";
+const REMOTE_ARTIFACT_ID = "remote-artifact-1";
 
 function jsonResponse(payload: unknown) {
   return Promise.resolve(
@@ -234,6 +236,236 @@ function mockApi(url: string) {
     return jsonResponse([]);
   }
 
+  if (path === "/api/remote/trainplane/config") {
+    return jsonResponse({
+      id: "default",
+      base_url: "http://127.0.0.1:8818",
+      region: "us-east-1",
+      instance_id: "i-123456789",
+      bucket: "orquestra-trainplane",
+      ssm_enabled: true,
+      token_configured: true,
+      token_keychain_service: "ai.orquestra.trainplane",
+      default_training_profile: { execution_mode: "qlora", max_steps: 12 },
+      default_serving_profile: { engine: "vllm", mode: "adapter-first" },
+      metadata: {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  if (path === "/api/remote/trainplane/base-models") {
+    return jsonResponse([
+      {
+        id: "base-model-1",
+        name: "Meta-Llama-3.1-8B-Instruct",
+        source_kind: "huggingface_ref",
+        source_ref: "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        storage_uri: "s3://trainplane/base-models/llama-3.1",
+        size_bytes: 1024,
+        checksum_sha256: "abc123",
+        format: "huggingface",
+        status: "ready",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
+  if (path === "/api/remote/trainplane/dataset-bundles") {
+    return jsonResponse([
+      {
+        id: "dataset-1",
+        project_slug: "orquestra-lab",
+        name: "approved-memory-bundle",
+        source: "orquestra_local",
+        storage_uri: "s3://trainplane/datasets/approved-memory-bundle",
+        record_count: 42,
+        stats: { records: 42 },
+        schema_version: "orquestra-trainplane-v1",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
+  if (path === "/api/remote/trainplane/runs") {
+    return jsonResponse([
+      {
+        id: REMOTE_RUN_ID,
+        project_slug: "orquestra-lab",
+        name: "research-adapter-run",
+        base_model_id: "base-model-1",
+        dataset_bundle_id: "dataset-1",
+        status: "running",
+        summary: "Fine-tuning remoto adapter-first",
+        profile: { execution_mode: "qlora", max_steps: 12 },
+        logs_path: "/tmp/trainplane-run.log",
+        artifact_id: REMOTE_ARTIFACT_ID,
+        output: {},
+        current_step: 6,
+        total_steps: 12,
+        cancel_requested: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        started_at: new Date().toISOString(),
+        finished_at: null,
+        metrics: [],
+        checkpoints: [],
+        artifact: null,
+        mirrored_job_id: "job-remote-1"
+      }
+    ]);
+  }
+
+  if (path === `/api/remote/trainplane/runs/${REMOTE_RUN_ID}`) {
+    return jsonResponse({
+      id: REMOTE_RUN_ID,
+      project_slug: "orquestra-lab",
+      name: "research-adapter-run",
+      base_model_id: "base-model-1",
+      dataset_bundle_id: "dataset-1",
+      status: "running",
+      summary: "Fine-tuning remoto adapter-first",
+      profile: { execution_mode: "qlora", max_steps: 12 },
+      logs_path: "/tmp/trainplane-run.log",
+      artifact_id: REMOTE_ARTIFACT_ID,
+      output: { status: "running" },
+      current_step: 6,
+      total_steps: 12,
+      cancel_requested: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      metrics: [
+        {
+          id: "metric-1",
+          run_id: REMOTE_RUN_ID,
+          step_index: 1,
+          epoch: 0.1,
+          loss: 2.0,
+          eval_loss: 2.1,
+          learning_rate: 0.0002,
+          grad_norm: 1.1,
+          gpu_util: 70,
+          gpu_mem_gb: 8.2,
+          gpu_temp_c: 62,
+          cpu_percent: 31,
+          ram_percent: 44,
+          disk_percent: 28,
+          network_mbps: 21,
+          metadata: {},
+          created_at: new Date().toISOString()
+        },
+        {
+          id: "metric-2",
+          run_id: REMOTE_RUN_ID,
+          step_index: 2,
+          epoch: 0.2,
+          loss: 1.6,
+          eval_loss: 1.7,
+          learning_rate: 0.0001,
+          grad_norm: 1.2,
+          gpu_util: 76,
+          gpu_mem_gb: 8.8,
+          gpu_temp_c: 64,
+          cpu_percent: 34,
+          ram_percent: 47,
+          disk_percent: 29,
+          network_mbps: 22,
+          metadata: {},
+          created_at: new Date().toISOString()
+        }
+      ],
+      checkpoints: [
+        {
+          id: "checkpoint-1",
+          run_id: REMOTE_RUN_ID,
+          step_index: 6,
+          label: "checkpoint-6",
+          storage_uri: "s3://trainplane/checkpoints/step-6",
+          metadata: {},
+          created_at: new Date().toISOString()
+        }
+      ],
+      artifact: {
+        id: REMOTE_ARTIFACT_ID,
+        run_id: REMOTE_RUN_ID,
+        name: "research-adapter-run-adapter",
+        artifact_type: "adapter",
+        base_model_name: "Meta-Llama-3.1-8B-Instruct",
+        storage_uri: "s3://trainplane/artifacts/research-adapter-run-adapter",
+        format: "adapter-only",
+        status: "ready",
+        benchmark: { correctness: 0.84, faithfulness: 0.82 },
+        serving_endpoint: { mode: "simulated" },
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    });
+  }
+
+  if (path === "/api/remote/trainplane/artifacts") {
+    return jsonResponse([
+      {
+        id: REMOTE_ARTIFACT_ID,
+        run_id: REMOTE_RUN_ID,
+        name: "research-adapter-run-adapter",
+        artifact_type: "adapter",
+        base_model_name: "Meta-Llama-3.1-8B-Instruct",
+        storage_uri: "s3://trainplane/artifacts/research-adapter-run-adapter",
+        format: "adapter-only",
+        status: "ready",
+        benchmark: { correctness: 0.84, faithfulness: 0.82 },
+        serving_endpoint: { mode: "simulated" },
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        mirrored_artifact_id: "registry-artifact-1"
+      }
+    ]);
+  }
+
+  if (path === "/api/remote/trainplane/evaluations") {
+    return jsonResponse([
+      {
+        id: "evaluation-1",
+        candidate_artifact_id: REMOTE_ARTIFACT_ID,
+        baseline_mode: "lmstudio_local",
+        baseline_ref: "lmstudio/ministral",
+        suite_name: "orquestra-eval-lab",
+        status: "succeeded",
+        summary_scores: { correctness: 0.84, faithfulness: 0.82 },
+        results: [],
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
+  if (path === "/api/remote/trainplane/comparisons") {
+    return jsonResponse([
+      {
+        id: "comparison-1",
+        candidate_artifact_id: REMOTE_ARTIFACT_ID,
+        baseline_mode: "lmstudio_local",
+        baseline_ref: "lmstudio/ministral",
+        prompt_set_name: "orquestra-compare-lab",
+        status: "succeeded",
+        summary_scores: { correctness: 0.84, faithfulness: 0.82 },
+        cases: [],
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
   if (path === `/api/chat/sessions/${SESSION_ID}/messages`) {
     return jsonResponse([]);
   }
@@ -414,5 +646,18 @@ describe("App", () => {
     expect(screen.getAllByText("/tmp/workflow.json").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Interrompido e recuperado após restart").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/resume from artifact/i).length).toBeGreaterThan(0);
+  });
+
+  it("mostra o painel Remote Train Plane com runs e evaluation lab", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Execution Center/i }));
+
+    await waitFor(() => expect(screen.getByText("Remote Train Plane")).toBeInTheDocument());
+    expect(screen.getAllByText("research-adapter-run").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("research-adapter-run-adapter").length).toBeGreaterThan(0);
+    expect(screen.getByText(/EC2 train plane, avaliação comparativa/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sincronizar base model/i)).toBeInTheDocument();
+    expect(screen.getByText(/Rodar comparison/i)).toBeInTheDocument();
   });
 });

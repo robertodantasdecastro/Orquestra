@@ -271,6 +271,21 @@ class ModelArtifact(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
+class RemoteTrainPlaneConfig(SQLModel, table=True):
+    id: str = Field(default="default", primary_key=True)
+    base_url: str = ""
+    region: str = ""
+    instance_id: str = ""
+    bucket: str = ""
+    ssm_enabled: bool = True
+    token_keychain_service: str = "ai.orquestra.trainplane"
+    default_training_profile_json: str = "{}"
+    default_serving_profile_json: str = "{}"
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
 class ProjectDeployment(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     project_id: str = Field(foreign_key="project.id", index=True)

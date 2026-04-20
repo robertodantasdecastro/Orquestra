@@ -69,7 +69,7 @@ source .venv/bin/activate
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION:-python}"
 
 echo "[orquestra] py_compile"
-python -m py_compile orquestra_ai/*.py rag/*.py training/local/*.py
+python -m py_compile orquestra_ai/*.py orquestra_trainplane/*.py rag/*.py training/local/*.py
 
 echo "[orquestra] pytest"
 PYTHONPATH=. pytest -q
@@ -233,6 +233,9 @@ with TestClient(app) as client:
 
     transcript = client.get(f"/api/chat/sessions/{session_id}/transcript")
     assert transcript.status_code == 200, transcript.text
+
+    trainplane_config = client.get("/api/remote/trainplane/config")
+    assert trainplane_config.status_code == 200, trainplane_config.text
 
     scan = client.post(
         "/api/workspace/attach-directory",
