@@ -5,6 +5,7 @@ import os
 import socket
 import subprocess
 import threading
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ from .models import (
     Project,
     ProviderProfile,
     TrainingCandidate,
+    WorkflowRun,
     WorkspaceAsset,
     WorkspaceScan,
 )
@@ -42,6 +44,7 @@ from .services import (
     project_to_dict,
     provider_profile_to_dict,
     workspace_scan_to_dict,
+    workflow_run_to_dict,
 )
 
 
@@ -244,6 +247,12 @@ class OrquestraOperations:
     def list_actions(self) -> list[dict[str, object]]:
         return [action.to_dict() for action in self._actions.values()]
 
+    def get_action(self, action_id: str) -> OperationAction:
+        action = self._actions.get(action_id)
+        if action is None:
+            raise KeyError(action_id)
+        return action
+
     def list_runs(self, limit: int = 12) -> list[dict[str, object]]:
         with self._lock:
             runs = sorted(self._runs.values(), key=lambda item: item.started_at, reverse=True)
@@ -283,13 +292,39 @@ class OrquestraOperations:
 
     def _run_action(self, run_id: str, action: OperationAction) -> None:
         log_path = self.logs_dir / f"{run_id}.log"
-        command = action.command_preview
+        return_code = self.run_action_sync(action.action_id, log_path=log_path)
+
+        with self._lock:
+            run = self._runs[run_id]
+            run.status = "succeeded" if return_code == 0 else "failed"
+            run.exit_code = return_code
+            run.finished_at = _utc_now()
+            self._write_run(run)
+
+    def run_action_sync(
+        self,
+        action_id: str,
+        *,
+        log_path: str | Path,
+        cancel_event: threading.Event | None = None,
+    ) -> int:
+        action = self.get_action(action_id)
+        return self._execute_command(action.action_id, action.command_preview, log_path=Path(log_path), cancel_event=cancel_event)
+
+    def _execute_command(
+        self,
+        action_id: str,
+        command: str,
+        *,
+        log_path: Path,
+        cancel_event: threading.Event | None = None,
+    ) -> int:
         env = os.environ.copy()
         env.setdefault("ORQUESTRA_ROOT", str(self.root))
         env.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 
         with log_path.open("w", encoding="utf-8") as handle:
-            handle.write(f"[orquestra-ops] action={action.action_id}\n")
+            handle.write(f"[orquestra-ops] action={action_id}\n")
             handle.write(f"[orquestra-ops] started_at={_utc_now()}\n")
             handle.write(f"[orquestra-ops] command={command}\n\n")
             handle.flush()
@@ -302,21 +337,29 @@ class OrquestraOperations:
                 text=True,
                 env=env,
             )
-            return_code = process.wait()
-            handle.write(f"\n[orquestra-ops] exit_code={return_code}\n")
-
-        with self._lock:
-            run = self._runs[run_id]
-            run.status = "succeeded" if return_code == 0 else "failed"
-            run.exit_code = return_code
-            run.finished_at = _utc_now()
-            self._write_run(run)
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    process.terminate()
+                    try:
+                        return_code = process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        return_code = process.wait()
+                    handle.write("\n[orquestra-ops] cancelled=true\n")
+                    handle.write(f"[orquestra-ops] exit_code={return_code}\n")
+                    return return_code
+                return_code = process.poll()
+                if return_code is not None:
+                    handle.write(f"\n[orquestra-ops] exit_code={return_code}\n")
+                    return return_code
+                time.sleep(0.2)
 
     def dashboard(self, session: Session) -> dict[str, object]:
         projects = session.exec(select(Project).order_by(Project.created_at.desc())).all()
         providers = session.exec(select(ProviderProfile).order_by(ProviderProfile.provider_id)).all()
         training_jobs = session.exec(select(JobRecord).where(JobRecord.job_family == "training").order_by(JobRecord.created_at.desc())).all()
         remote_jobs = session.exec(select(JobRecord).where(JobRecord.job_family == "remote").order_by(JobRecord.created_at.desc())).all()
+        workflow_runs = session.exec(select(WorkflowRun).order_by(WorkflowRun.started_at.desc()).limit(10)).all()
         registry_models = session.exec(select(ModelArtifact).order_by(ModelArtifact.created_at.desc())).all()
         recent_sessions = session.exec(select(ChatSession).order_by(ChatSession.updated_at.desc()).limit(8)).all()
         recent_scans = session.exec(select(WorkspaceScan).order_by(WorkspaceScan.updated_at.desc()).limit(8)).all()
@@ -364,7 +407,7 @@ class OrquestraOperations:
                 {"id": "sessions", "label": "Sessões", "value": len(recent_sessions), "helper": "histórico recente ativo"},
                 {"id": "memories", "label": "Memórias", "value": len(memory_records), "helper": "registros duráveis e episódicos"},
                 {"id": "review_pending", "label": "Inbox memória", "value": len([item for item in recent_review_candidates if item.status == "pending"]), "helper": "candidatos aguardando revisão"},
-                {"id": "execution", "label": "Execuções", "value": len(training_jobs) + len(remote_jobs), "helper": "jobs e operações registradas"},
+                {"id": "execution", "label": "Execuções", "value": len(training_jobs) + len(remote_jobs) + len(workflow_runs), "helper": "jobs, workflows e operações registradas"},
             ],
             "process_snapshot": {
                 "background_processes": _parse_process_rows(_run_capture("pgrep", "-af", "orquestra|uvicorn|vite|tauri|orquestra-desktop")),
@@ -388,6 +431,7 @@ class OrquestraOperations:
                 ],
                 "recent_scans": [workspace_scan_to_dict(item) for item in recent_scans],
                 "recent_jobs": [job_record_to_dict(item) for item in (training_jobs[:4] + remote_jobs[:4])],
+                "recent_workflows": [workflow_run_to_dict(item) for item in workflow_runs[:6]],
                 "runtime_paths": {
                     "database": str(db_path) if db_path else self.settings.database_url,
                     "memorygraph": str(memory_dir),
@@ -431,6 +475,7 @@ class OrquestraOperations:
                 "connectors": connectors,
                 "training_jobs": [job_record_to_dict(item) for item in training_jobs[:10]],
                 "remote_jobs": [job_record_to_dict(item) for item in remote_jobs[:10]],
+                "workflow_runs": [workflow_run_to_dict(item) for item in workflow_runs[:10]],
                 "registry_models": [model_artifact_to_dict(item) for item in registry_models[:10]],
                 "actions": self.list_actions(),
                 "runs": self.list_runs(limit=10),

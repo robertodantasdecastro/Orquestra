@@ -10,19 +10,25 @@ import {
   ModelArtifact,
   OpsDashboard,
   OpsRun,
+  PlannerSnapshot,
   Project,
   RagResult,
   RegistryCompareResult,
+  SessionCompactionState,
   SessionSummary,
   SessionProfile,
+  SessionTask,
   SessionTranscript,
   TrainingCandidate,
+  WorkflowRun,
   WorkspaceAsset,
   WorkspacePreview,
   WorkspaceQueryResult,
   WorkspaceScan,
   approveMemoryCandidate,
   attachDirectory,
+  cancelWorkflowRun,
+  compactSession,
   compareRegistryModels,
   createDeployment,
   createJob,
@@ -30,14 +36,18 @@ import {
   createOpsRun,
   createProject,
   createSession,
+  createSessionTask,
+  createWorkflowRun,
   extractWorkspaceAsset,
   getHealth,
   getOpsDashboard,
   getOpsRun,
+  getPlanner,
   getRemoteJobLogs,
   getSessionProfile,
   getSummary,
   getTranscript,
+  getWorkflowRun,
   getWorkspaceScan,
   listMemory,
   listMemoryCandidates,
@@ -46,10 +56,12 @@ import {
   listModels,
   listSessions,
   listTrainingCandidates,
+  listWorkflowRuns,
   listWorkspaceAssets,
   listWorkspaceScans,
   memorizeWorkspaceAsset,
   openWorkspaceAsset,
+  patchSessionTask,
   previewWorkspaceAsset,
   promoteMemory,
   queryRag,
@@ -57,6 +69,7 @@ import {
   rawPreviewUrl,
   recallMemory,
   rejectMemoryCandidate,
+  rebuildPlanner,
   resumeSession,
   streamChat,
   updateSessionProfile
@@ -179,6 +192,9 @@ export default function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | null>(null);
   const [sessionTranscript, setSessionTranscript] = useState<SessionTranscript | null>(null);
+  const [sessionCompaction, setSessionCompaction] = useState<SessionCompactionState | null>(null);
+  const [plannerSnapshot, setPlannerSnapshot] = useState<PlannerSnapshot | null>(null);
+  const [sessionTasks, setSessionTasks] = useState<SessionTask[]>([]);
   const [resumePayload, setResumePayload] = useState<Record<string, unknown> | null>(null);
   const [chatPrompt, setChatPrompt] = useState("");
   const [chatStreaming, setChatStreaming] = useState(false);
@@ -229,6 +245,9 @@ export default function App() {
 
   const [selectedRunId, setSelectedRunId] = useState("");
   const [selectedRun, setSelectedRun] = useState<OpsRun | null>(null);
+  const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
+  const [selectedWorkflow, setSelectedWorkflow] = useState<WorkflowRun | null>(null);
   const [opsActionBusyId, setOpsActionBusyId] = useState("");
   const [statusLine, setStatusLine] = useState("Orquestra pronto para operar em modo local-first.");
 
@@ -257,6 +276,7 @@ export default function App() {
     const [healthPayload, dashboardPayload] = await Promise.all([getHealth(), getOpsDashboard()]);
     setHealth(healthPayload);
     setOpsDashboard(dashboardPayload);
+    setWorkflowRuns(dashboardPayload.execution_snapshot.workflow_runs ?? []);
 
     const projectsPayload = dashboardPayload.execution_snapshot.projects;
     setProjects(projectsPayload);
@@ -270,6 +290,9 @@ export default function App() {
 
     if (!selectedRunId && dashboardPayload.execution_snapshot.runs[0]?.run_id) {
       setSelectedRunId(dashboardPayload.execution_snapshot.runs[0].run_id);
+    }
+    if (!selectedWorkflowId && dashboardPayload.execution_snapshot.workflow_runs[0]?.id) {
+      setSelectedWorkflowId(dashboardPayload.execution_snapshot.workflow_runs[0].id);
     }
   }
 
@@ -319,23 +342,30 @@ export default function App() {
       setMessages([]);
       setSessionSummary(null);
       setSessionTranscript(null);
+      setSessionCompaction(null);
+      setPlannerSnapshot(null);
+      setSessionTasks([]);
       setResumePayload(null);
       setSessionProfile(null);
       setMemoryCandidates([]);
       return;
     }
-    const [messagesPayload, summaryPayload, transcriptPayload, profilePayload, candidatePayload] = await Promise.all([
+    const [messagesPayload, summaryPayload, transcriptPayload, profilePayload, candidatePayload, plannerPayload] = await Promise.all([
       listMessages(sessionId),
       getSummary(sessionId),
       getTranscript(sessionId),
       getSessionProfile(sessionId),
-      listMemoryCandidates(undefined, sessionId, "pending")
+      listMemoryCandidates(undefined, sessionId, "pending"),
+      getPlanner(sessionId)
     ]);
     setMessages(messagesPayload);
     setSessionSummary(summaryPayload);
+    setSessionCompaction(summaryPayload.compaction_state ?? null);
     setSessionTranscript(transcriptPayload);
     setSessionProfile(profilePayload);
     setMemoryCandidates(candidatePayload);
+    setPlannerSnapshot(plannerPayload.snapshot);
+    setSessionTasks(plannerPayload.tasks);
   }
 
   async function refreshWorkspace(scanId: string) {
@@ -360,6 +390,15 @@ export default function App() {
     }
     const payload = await getOpsRun(runId);
     setSelectedRun(payload);
+  }
+
+  async function refreshWorkflow(runId: string) {
+    if (!runId) {
+      setSelectedWorkflow(null);
+      return;
+    }
+    const payload = await getWorkflowRun(runId);
+    setSelectedWorkflow(payload);
   }
 
   useEffect(() => {
@@ -411,6 +450,19 @@ export default function App() {
     }, 4000);
     return () => window.clearInterval(interval);
   }, [selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedWorkflowId) {
+      setSelectedWorkflow(null);
+      return;
+    }
+    refreshWorkflow(selectedWorkflowId).catch((error) => setStatusLine(`Falha ao carregar workflow: ${String(error)}`));
+
+    const interval = window.setInterval(() => {
+      refreshWorkflow(selectedWorkflowId).catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [selectedWorkflowId]);
 
   useEffect(() => {
     const shouldPoll = view === "dashboard" || view === "process" || view === "execution";
@@ -538,7 +590,12 @@ export default function App() {
           memory_scopes: memoryPolicy.scopes ?? [],
           include_workspace: Boolean(ragPolicy.include_workspace),
           include_sources: Boolean(ragPolicy.include_sources),
-          max_context_chars: Number(ragPolicy.max_context_chars ?? 9000)
+          max_context_chars: Number(ragPolicy.max_context_chars ?? 9000),
+          compaction_enabled: true,
+          planner_enabled: true,
+          task_context_enabled: true,
+          memory_selector_mode: "hybrid",
+          context_budget: Number(ragPolicy.max_context_chars ?? 9000)
         },
         {
           onSession: ({ session_id }) => {
@@ -557,11 +614,11 @@ export default function App() {
           onSummary: (payload) => {
             setSessionSummary((current) =>
               current
-                ? { ...current, current_state: payload.current_state, updated_at: payload.updated_at }
+                ? { ...current, current_state: payload.current_state, next_steps: payload.next_steps ?? current.next_steps, updated_at: payload.updated_at }
                 : {
                     session_id: selectedSessionId,
                     current_state: payload.current_state,
-                    next_steps: "",
+                    next_steps: payload.next_steps ?? "",
                     relevant_files: [],
                     commands_run: [],
                     errors_and_fixes: [],
@@ -609,6 +666,90 @@ export default function App() {
       await refreshSession(selectedSessionId);
     } catch (error) {
       setStatusLine(`Falha ao retomar sessão: ${String(error)}`);
+    }
+  }
+
+  async function handleCompactSession() {
+    if (!selectedSessionId) return;
+    try {
+      const payload = await compactSession(selectedSessionId);
+      setSessionCompaction(payload.compaction_state);
+      setStatusLine(`Compactação atualizada: ${payload.compacted_from_message_count} mensagens consolidadas.`);
+      await refreshSession(selectedSessionId);
+    } catch (error) {
+      setStatusLine(`Falha ao compactar sessão: ${String(error)}`);
+    }
+  }
+
+  async function handleRebuildPlanner() {
+    if (!selectedSessionId) return;
+    try {
+      const payload = await rebuildPlanner(selectedSessionId);
+      setPlannerSnapshot(payload.snapshot);
+      setSessionTasks(payload.tasks);
+      setStatusLine(`Planner reconstruído com ${payload.tasks.length} tarefas.`);
+      await refreshSession(selectedSessionId);
+    } catch (error) {
+      setStatusLine(`Falha ao reconstruir planner: ${String(error)}`);
+    }
+  }
+
+  async function handleTaskStatus(task: SessionTask, status: SessionTask["status"]) {
+    if (!selectedSessionId) return;
+    try {
+      const updated = await patchSessionTask(selectedSessionId, task.id, { status, metadata: { updated_from: "assistant_panel" } });
+      setSessionTasks((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setStatusLine(`Tarefa ${updated.subject} marcada como ${status}.`);
+    } catch (error) {
+      setStatusLine(`Falha ao atualizar tarefa: ${String(error)}`);
+    }
+  }
+
+  async function handleAddNextTask() {
+    if (!selectedSessionId || !chatPrompt.trim()) return;
+    try {
+      const task = await createSessionTask(selectedSessionId, {
+        subject: chatPrompt.trim().slice(0, 140),
+        description: chatPrompt.trim(),
+        status: "pending",
+        metadata: { created_from: "assistant_prompt" }
+      });
+      setSessionTasks((current) => [...current, task].sort((a, b) => a.position - b.position));
+      setStatusLine("Tarefa adicionada ao planner.");
+    } catch (error) {
+      setStatusLine(`Falha ao criar tarefa: ${String(error)}`);
+    }
+  }
+
+  async function handleStartValidationWorkflow() {
+    if (!selectedSessionId) return;
+    try {
+      const payload = await createWorkflowRun({
+        session_id: selectedSessionId,
+        workflow_name: "session-validation",
+        summary: "Executar validação local controlada da stack Orquestra.",
+        steps: [
+          { step_type: "shell_safe", label: "Git diff check", payload: { command: "git diff --check" } },
+          { step_type: "ops_action", label: "Validate stack", payload: { action_id: "validate" } }
+        ]
+      });
+      setSelectedWorkflowId(payload.id);
+      setSelectedWorkflow(payload);
+      setStatusLine("Workflow local iniciado.");
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao iniciar workflow: ${String(error)}`);
+    }
+  }
+
+  async function handleCancelWorkflow() {
+    if (!selectedWorkflowId) return;
+    try {
+      const payload = await cancelWorkflowRun(selectedWorkflowId);
+      setSelectedWorkflow(payload);
+      setStatusLine("Cancelamento solicitado para o workflow.");
+    } catch (error) {
+      setStatusLine(`Falha ao cancelar workflow: ${String(error)}`);
     }
   }
 
@@ -752,7 +893,12 @@ export default function App() {
         memory_scopes: sessionProfile?.memory_policy.scopes ?? [],
         include_workspace: Boolean(sessionProfile?.rag_policy.include_workspace ?? true),
         include_sources: Boolean(sessionProfile?.rag_policy.include_sources ?? true),
-        max_context_chars: Number(sessionProfile?.rag_policy.max_context_chars ?? 9000)
+        max_context_chars: Number(sessionProfile?.rag_policy.max_context_chars ?? 9000),
+        compaction_enabled: true,
+        planner_enabled: true,
+        task_context_enabled: true,
+        memory_selector_mode: "hybrid",
+        context_budget: Number(sessionProfile?.rag_policy.max_context_chars ?? 9000)
       });
       setRagResult(result);
       setStatusLine("Consulta do RAG concluída.");
@@ -1370,6 +1516,47 @@ export default function App() {
                     <pre className="preview-text terminal">
                       {selectedRun?.log_tail || "Selecione uma execução operacional para acompanhar os logs."}
                     </pre>
+
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Local workflows</p>
+                        <h3>Execução multi-step</h3>
+                      </div>
+                      <div className="composer-actions">
+                        <button type="button" className="ghost-button" onClick={handleStartValidationWorkflow} disabled={!selectedSessionId}>
+                          Novo workflow
+                        </button>
+                        <button type="button" className="ghost-button" onClick={handleCancelWorkflow} disabled={!selectedWorkflowId || selectedWorkflow?.status !== "running"}>
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                    <div className="run-grid">
+                      {workflowRuns.map((run) => (
+                        <button
+                          key={run.id}
+                          type="button"
+                          className={selectedWorkflowId === run.id ? "job-row active" : "job-row"}
+                          onClick={() => setSelectedWorkflowId(run.id)}
+                        >
+                          <strong>{run.workflow_name}</strong>
+                          <span>{run.status}</span>
+                          <small>{Math.round((run.progress ?? 0) * 100)}%</small>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="workflow-step-list">
+                      {(selectedWorkflow?.steps ?? []).map((step) => (
+                        <article key={step.id} className="stack-row">
+                          <strong>{step.step_index + 1}</strong>
+                          <span>{step.label}</span>
+                          <small>{step.status}</small>
+                        </article>
+                      ))}
+                    </div>
+                    <pre className="preview-text terminal">
+                      {selectedWorkflow?.log_tail || "Selecione um workflow para acompanhar progresso, passos e logs."}
+                    </pre>
                   </div>
                 </section>
 
@@ -1786,6 +1973,10 @@ export default function App() {
                           <span>Inbox criada</span>
                           <strong>{lastMemoryTelemetry.candidatesCreated}</strong>
                         </article>
+                        <article>
+                          <span>Compactação</span>
+                          <strong>{sessionCompaction?.compacted_message_count ?? 0}</strong>
+                        </article>
                       </div>
 
                       <div className="token-list">
@@ -1793,6 +1984,58 @@ export default function App() {
                           <span key={collection}>{collection}</span>
                         ))}
                         <span>{sessionProfile.rag_policy.memory_collection || "orquestra_memory_v1"}</span>
+                      </div>
+
+                      <div className="composer-actions">
+                        <button type="button" className="ghost-button" onClick={handleCompactSession} disabled={!selectedSessionId}>
+                          Compactar contexto
+                        </button>
+                        <button type="button" className="ghost-button" onClick={handleRebuildPlanner} disabled={!selectedSessionId}>
+                          Rebuild planner
+                        </button>
+                        <button type="button" className="ghost-button" onClick={handleAddNextTask} disabled={!selectedSessionId || !chatPrompt.trim()}>
+                          Virar tarefa
+                        </button>
+                      </div>
+
+                      <div className="context-list">
+                        <span><strong>Summary version:</strong> {sessionCompaction?.summary_version ?? 0}</span>
+                        <span><strong>Recent tail:</strong> {sessionCompaction?.preserved_recent_turns ?? 0} turns</span>
+                        <span><strong>Planner:</strong> {plannerSnapshot?.next_steps.length ?? 0} próximos passos</span>
+                      </div>
+
+                      <div className="memory-inbox">
+                        <div className="panel-head slim">
+                          <div>
+                            <p className="eyebrow">Planner</p>
+                            <h3>{sessionTasks.length} tarefas</h3>
+                          </div>
+                        </div>
+                        {sessionTasks.length === 0 ? (
+                          <div className="empty-state compact">
+                            <h4>Planner vazio.</h4>
+                            <p>Reconstrua o planner para sincronizar objetivo, resumo e próximos passos.</p>
+                          </div>
+                        ) : (
+                          sessionTasks.map((task) => (
+                            <article key={task.id} className="memory-card candidate-card">
+                              <strong>{task.subject}</strong>
+                              <span>{task.status} · {task.owner}</span>
+                              <p>{task.active_form || task.description}</p>
+                              <div className="composer-actions">
+                                <button type="button" className="ghost-button" onClick={() => handleTaskStatus(task, "blocked")}>
+                                  Bloquear
+                                </button>
+                                <button type="button" className="ghost-button" onClick={() => handleTaskStatus(task, "in_progress")}>
+                                  Em curso
+                                </button>
+                                <button type="button" className="primary-button" onClick={() => handleTaskStatus(task, "completed")}>
+                                  Concluir
+                                </button>
+                              </div>
+                            </article>
+                          ))
+                        )}
                       </div>
 
                       <div className="memory-inbox">
@@ -2067,7 +2310,8 @@ export default function App() {
               <p>{sessionSummary?.current_state || "O resumo aparece aqui assim que uma sessão vira contexto operacional."}</p>
               <div className="context-list">
                 <span><strong>Arquivos:</strong> {shortList(sessionSummary?.relevant_files ?? [])}</span>
-                <span><strong>Próximos passos:</strong> {sessionSummary?.next_steps || "Sem próximos passos ainda."}</span>
+                <span><strong>Próximos passos:</strong> {plannerSnapshot?.next_steps.join(" • ") || sessionSummary?.next_steps || "Sem próximos passos ainda."}</span>
+                <span><strong>Compactação:</strong> {sessionCompaction ? `${sessionCompaction.compacted_message_count} consolidadas / v${sessionCompaction.summary_version}` : "não iniciada"}</span>
                 <span><strong>Perfil:</strong> {sessionProfile ? `${sessionProfile.preset_label || sessionProfile.preset} · ${sessionProfile.objective || "sem objetivo"}` : "não carregado"}</span>
               </div>
             </section>
@@ -2090,6 +2334,19 @@ export default function App() {
               </div>
               <pre className="preview-text compact terminal">
                 {selectedRun?.log_tail || "Os logs das ações operacionais aparecem aqui."}
+              </pre>
+            </section>
+
+            <section className="context-card">
+              <p className="eyebrow">Workflow Run</p>
+              <h3>{selectedWorkflow?.workflow_name || "Nenhum workflow selecionado"}</h3>
+              <div className="context-list">
+                <span><strong>Status:</strong> {selectedWorkflow?.status || "idle"}</span>
+                <span><strong>Progresso:</strong> {Math.round((selectedWorkflow?.progress ?? 0) * 100)}%</span>
+                <span><strong>Passos:</strong> {selectedWorkflow?.steps.length ?? 0}</span>
+              </div>
+              <pre className="preview-text compact terminal">
+                {selectedWorkflow?.log_tail || "Os logs dos workflows multi-step aparecem aqui."}
               </pre>
             </section>
 

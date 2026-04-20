@@ -151,14 +151,33 @@ export type ChatMessage = {
 export type SessionSummary = {
   id?: string;
   session_id: string;
+  summary_path?: string;
+  objective?: string;
   current_state: string;
   next_steps: string;
+  decisions?: string;
+  open_questions?: string;
   relevant_files: string[];
   commands_run: string[];
   errors_and_fixes: string[];
   worklog: string[];
   compacted_from_message_count: number;
-  storage_path: string;
+  storage_path?: string;
+  planner?: PlannerSnapshot;
+  compaction_state?: SessionCompactionState;
+  metadata: Record<string, unknown>;
+  updated_at?: string;
+};
+
+export type SessionCompactionState = {
+  id?: string;
+  session_id: string;
+  last_compacted_message_id?: string | null;
+  summary_version: number;
+  next_steps: string[];
+  preserved_recent_turns: number;
+  compacted_message_count: number;
+  compacted_at: string;
   metadata: Record<string, unknown>;
   updated_at?: string;
 };
@@ -185,6 +204,7 @@ export type MemoryRecord = {
   session_id?: string | null;
   topic_id?: string | null;
   scope: string;
+  memory_kind: string;
   source: string;
   content: string;
   confidence: number;
@@ -214,8 +234,9 @@ export type MemoryRecallItem = {
   title: string;
   content: string;
   scope?: string;
+  memory_kind?: string;
   source?: string;
-  relevance?: number;
+  score?: number;
   metadata?: Record<string, unknown>;
 };
 
@@ -224,6 +245,7 @@ export type MemoryReviewCandidate = {
   project_id?: string | null;
   session_id?: string | null;
   scope: string;
+  memory_kind: string;
   title: string;
   content: string;
   rationale: string;
@@ -249,6 +271,66 @@ export type TrainingCandidate = {
   dataset_path: string;
   metadata: Record<string, unknown>;
   created_at: string;
+};
+
+export type SessionTask = {
+  id: string;
+  session_id: string;
+  subject: string;
+  description: string;
+  active_form: string;
+  status: "pending" | "in_progress" | "blocked" | "completed" | "failed" | "cancelled";
+  owner: string;
+  blocked_by: string[];
+  blocks: string[];
+  position: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PlannerSnapshot = {
+  id: string;
+  session_id: string;
+  objective: string;
+  strategy: string;
+  next_steps: string[];
+  risks: string[];
+  metadata: Record<string, unknown>;
+  last_planned_at: string;
+  updated_at: string;
+};
+
+export type WorkflowStepRun = {
+  id: string;
+  run_id: string;
+  step_index: number;
+  step_type: string;
+  label: string;
+  status: string;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  started_at?: string | null;
+  finished_at?: string | null;
+};
+
+export type WorkflowRun = {
+  id: string;
+  session_id?: string | null;
+  task_id?: string | null;
+  workflow_name: string;
+  status: string;
+  summary: string;
+  log_path: string;
+  output_path: string;
+  progress: number;
+  cancel_requested: boolean;
+  metadata: Record<string, unknown>;
+  started_at: string;
+  finished_at?: string | null;
+  steps: WorkflowStepRun[];
+  log_tail?: string;
 };
 
 export type WorkspaceScan = {
@@ -446,6 +528,7 @@ export type OpsDashboard = {
     recent_sessions: ChatSession[];
     recent_scans: WorkspaceScan[];
     recent_jobs: JobRecord[];
+    recent_workflows: WorkflowRun[];
     runtime_paths: Record<string, string>;
     runtime_state: RuntimeState;
   };
@@ -481,6 +564,7 @@ export type OpsDashboard = {
     connectors: ConnectorDescriptor[];
     training_jobs: JobRecord[];
     remote_jobs: JobRecord[];
+    workflow_runs: WorkflowRun[];
     registry_models: ModelArtifact[];
     actions: OpsAction[];
     runs: OpsRun[];
@@ -607,6 +691,74 @@ export async function getSummary(sessionId: string) {
   return request<SessionSummary>(`/api/chat/sessions/${sessionId}/summary`);
 }
 
+export async function compactSession(sessionId: string) {
+  return request<{
+    session_id: string;
+    summary_path: string;
+    kept_messages: number;
+    compacted_from_message_count: number;
+    transcript_path: string;
+    compaction_state: SessionCompactionState;
+  }>(`/api/chat/sessions/${sessionId}/compact`, {
+    method: "POST"
+  });
+}
+
+export async function getPlanner(sessionId: string) {
+  return request<{ snapshot: PlannerSnapshot; tasks: SessionTask[] }>(`/api/chat/sessions/${sessionId}/planner`);
+}
+
+export async function rebuildPlanner(sessionId: string) {
+  return request<{ snapshot: PlannerSnapshot; tasks: SessionTask[] }>(`/api/chat/sessions/${sessionId}/planner/rebuild`, {
+    method: "POST"
+  });
+}
+
+export async function listSessionTasks(sessionId: string) {
+  return request<SessionTask[]>(`/api/chat/sessions/${sessionId}/tasks`);
+}
+
+export async function createSessionTask(
+  sessionId: string,
+  payload: {
+    subject: string;
+    description?: string;
+    active_form?: string;
+    status?: SessionTask["status"];
+    owner?: string;
+    blocked_by?: string[];
+    blocks?: string[];
+    position?: number | null;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  return request<SessionTask>(`/api/chat/sessions/${sessionId}/tasks`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function patchSessionTask(
+  sessionId: string,
+  taskId: string,
+  payload: {
+    subject?: string;
+    description?: string;
+    active_form?: string;
+    status?: SessionTask["status"];
+    owner?: string;
+    blocked_by?: string[];
+    blocks?: string[];
+    position?: number | null;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  return request<SessionTask>(`/api/chat/sessions/${sessionId}/tasks?task_id=${encodeURIComponent(taskId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function listMemory(projectId?: string, scope?: string) {
   const params = new URLSearchParams();
   if (projectId) params.set("project_id", projectId);
@@ -620,6 +772,7 @@ export async function createMemory(payload: {
   session_id?: string | null;
   topic_id?: string | null;
   scope: string;
+  memory_kind?: string;
   source: string;
   content: string;
   confidence: number;
@@ -641,10 +794,12 @@ export async function listMemoryTopics(projectId?: string, scope?: string) {
 export async function recallMemory(payload: {
   query: string;
   project_id?: string | null;
+  session_id?: string | null;
   scopes?: string[];
+  memory_kinds?: string[];
   limit?: number;
 }) {
-  return request<{ query: string; items: MemoryRecallItem[] }>("/api/memory/recall", {
+  return request<{ query: string; items: MemoryRecallItem[]; status: string; selector_mode?: string }>("/api/memory/recall", {
     method: "POST",
     body: JSON.stringify(payload)
   });
@@ -653,6 +808,7 @@ export async function recallMemory(payload: {
 export async function promoteMemory(payload: {
   project_id?: string | null;
   scope?: string;
+  memory_kind?: string;
   title: string;
   content: string;
   source?: string;
@@ -725,6 +881,11 @@ export async function queryRag(payload: {
   include_workspace?: boolean;
   include_sources?: boolean;
   max_context_chars?: number;
+  compaction_enabled?: boolean;
+  planner_enabled?: boolean;
+  task_context_enabled?: boolean;
+  memory_selector_mode?: string;
+  context_budget?: number;
 }) {
   return request<RagResult>("/api/rag/query", { method: "POST", body: JSON.stringify(payload) });
 }
@@ -787,7 +948,7 @@ export async function openWorkspaceAsset(assetId: string) {
   });
 }
 
-export async function memorizeWorkspaceAsset(assetId: string, payload?: { project_id?: string | null; scope?: string; source?: string }) {
+export async function memorizeWorkspaceAsset(assetId: string, payload?: { project_id?: string | null; scope?: string; source?: string; memory_kind?: string }) {
   return request<MemoryRecord>(`/api/workspace/assets/${assetId}/memorize`, {
     method: "POST",
     body: JSON.stringify(payload ?? {})
@@ -868,6 +1029,33 @@ export async function createOpsRun(payload: { action_id: string }) {
   });
 }
 
+export async function listWorkflowRuns() {
+  return request<WorkflowRun[]>("/api/workflows/runs");
+}
+
+export async function getWorkflowRun(runId: string) {
+  return request<WorkflowRun>(`/api/workflows/runs/${runId}`);
+}
+
+export async function createWorkflowRun(payload: {
+  session_id?: string | null;
+  task_id?: string | null;
+  workflow_name: string;
+  summary?: string;
+  steps: Array<{ step_type: string; label?: string; payload?: Record<string, unknown> }>;
+}) {
+  return request<WorkflowRun>("/api/workflows/runs", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function cancelWorkflowRun(runId: string) {
+  return request<WorkflowRun>(`/api/workflows/runs/${runId}/cancel`, {
+    method: "POST"
+  });
+}
+
 export async function streamChat(
   payload: {
     project_id?: string | null;
@@ -884,11 +1072,16 @@ export async function streamChat(
     include_workspace?: boolean;
     include_sources?: boolean;
     max_context_chars?: number;
+    compaction_enabled?: boolean;
+    planner_enabled?: boolean;
+    task_context_enabled?: boolean;
+    memory_selector_mode?: string;
+    context_budget?: number;
   },
   handlers: {
     onSession: (payload: { session_id: string; provider_id: string; model_name: string }) => void;
     onDelta: (text: string) => void;
-    onSummary?: (payload: { current_state: string; updated_at: string }) => void;
+    onSummary?: (payload: { current_state: string; next_steps?: string; updated_at: string; planner_task_count?: number }) => void;
     onDone: (payload: {
       provider_id: string;
       model_name: string;

@@ -36,6 +36,7 @@ from .models import (
     WorkspaceInsight,
     WorkspaceScan,
 )
+from .planner import PlannerService
 from .rag_memory import RagMemoryService
 from .runtime_state import runtime_backup_dir, runtime_install_dir
 
@@ -188,6 +189,7 @@ class LocalRagEngine:
         self.paths = RagPaths.load(settings.workspace_root)
         self.memory_graph = MemoryGraphService(settings)
         self.memory_recall = MemoryRecallService(settings)
+        self.planner = PlannerService()
 
     def query(self, session: Session, options: RagQueryOptions, *, project_id: str | None = None) -> dict[str, Any]:
         rag_memory_payload: dict[str, Any] = {"items": [], "status": "disabled", "collection_name": "orquestra_memory_v1"}
@@ -206,7 +208,7 @@ class LocalRagEngine:
                 rag_memory_payload.get("items", []),
                 max_chars=min(max(options.max_context_chars, 1000), 9000),
             )
-        if options.session_id:
+        if options.session_id and options.compaction_enabled:
             from .models import ChatSession
 
             chat_session = session.get(ChatSession, options.session_id)
@@ -221,6 +223,12 @@ class LocalRagEngine:
                     external_memory_context = "\n\n".join(
                         part for part in (snapshot_text, external_memory_context) if part
                     )
+                if options.task_context_enabled:
+                    planner_context = self.planner.task_prompt_context(session, chat_session.id)
+                    if planner_context:
+                        external_memory_context = "\n\n".join(
+                            part for part in (f"Tarefas ativas:\n{planner_context}", external_memory_context) if part
+                        )
         workflow = RagWorkflow(self.paths, mock_llm=options.mock_llm, provider_id=options.provider_id)
         result = workflow.invoke(
             question=options.question,

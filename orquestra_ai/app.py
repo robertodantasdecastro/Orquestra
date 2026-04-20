@@ -27,23 +27,28 @@ from .models import (
     MemoryReviewCandidate,
     MemoryTopic,
     ModelArtifact,
+    PlannerSnapshot,
     Project,
     ProjectDeployment,
     ProviderProfile,
+    SessionTask,
     SessionSummary,
     SessionTranscript,
     TrainingCandidate,
+    WorkflowRun,
     WorkspaceAsset,
     WorkspaceInsight,
     WorkspaceScan,
     utc_now,
 )
 from .operations import OrquestraOperations
+from .planner import PlannerService
 from .rag_memory import RagMemoryService
 from .runtime_state import collect_runtime_state, resolve_app_version
 from .services import (
     LocalRagEngine,
     RagQueryOptions,
+    compaction_state_to_dict,
     ensure_runtime_dirs,
     job_record_to_dict,
     list_gateway_providers,
@@ -51,10 +56,13 @@ from .services import (
     memory_record_to_dict,
     memory_topic_to_dict,
     model_artifact_to_dict,
+    planner_snapshot_to_dict,
     project_to_dict,
     provider_profile_to_dict,
+    session_task_to_dict,
     seed_default_state,
     session_summary_to_dict,
+    workflow_run_to_dict,
     session_transcript_to_dict,
     training_candidate_to_dict,
     workspace_asset_to_dict,
@@ -62,6 +70,7 @@ from .services import (
     workspace_scan_to_dict,
 )
 from .session_profile import get_session_metadata, get_session_profile, profile_prompt_section, set_session_profile
+from .workflow_engine import WorkflowEngine
 from .workspace import WorkspaceService
 
 
@@ -189,6 +198,30 @@ class MemoryCandidateReviewRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+class SessionTaskCreateRequest(BaseModel):
+    subject: str
+    description: str = ""
+    active_form: str = ""
+    status: str = "pending"
+    owner: str = "orquestra"
+    blocked_by: list[str] = Field(default_factory=list)
+    blocks: list[str] = Field(default_factory=list)
+    position: int | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class SessionTaskPatchRequest(BaseModel):
+    subject: str | None = None
+    description: str | None = None
+    active_form: str | None = None
+    status: str | None = None
+    owner: str | None = None
+    blocked_by: list[str] | None = None
+    blocks: list[str] | None = None
+    position: int | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
 class RagQueryRequest(BaseModel):
     question: str
     project_id: str | None = None
@@ -271,6 +304,20 @@ class OperationRunRequest(BaseModel):
     action_id: str
 
 
+class WorkflowStepRequest(BaseModel):
+    step_type: str
+    label: str = ""
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class WorkflowRunCreateRequest(BaseModel):
+    session_id: str | None = None
+    task_id: str | None = None
+    workflow_name: str
+    summary: str = ""
+    steps: list[WorkflowStepRequest] = Field(default_factory=list)
+
+
 def _sse(event: str, data: dict[str, object]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -327,9 +374,18 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     memory_graph = MemoryGraphService(app_settings)
     rag_memory = RagMemoryService(app_settings)
     memory_recall = MemoryRecallService(app_settings)
+    planner = PlannerService()
     candidate_extractor = MemoryCandidateExtractor()
     workspace_service = WorkspaceService(app_settings)
     operations = OrquestraOperations(app_settings)
+    workflows = WorkflowEngine(
+        settings=app_settings,
+        engine=engine,
+        operations=operations,
+        memory_graph=memory_graph,
+        rag_memory=rag_memory,
+        workspace_service=workspace_service,
+    )
 
     def bootstrap_runtime() -> None:
         init_database(engine)
@@ -348,9 +404,11 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     app.state.memory_graph = memory_graph
     app.state.rag_memory = rag_memory
     app.state.memory_recall = memory_recall
+    app.state.planner = planner
     app.state.candidate_extractor = candidate_extractor
     app.state.workspace_service = workspace_service
     app.state.operations = operations
+    app.state.workflows = workflows
     bootstrap_runtime()
 
     frontend_dist = app_settings.workspace_root / "orquestra_web" / "dist"
@@ -441,6 +499,43 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             return operations.start_action(payload.action_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Ação operacional não encontrada.") from exc
+
+    @app.get("/api/workflows/runs")
+    def list_workflow_runs(session: Session = Depends(get_session)) -> list[dict[str, object]]:
+        return workflows.list_runs(session)
+
+    @app.get("/api/workflows/runs/{run_id}")
+    def get_workflow_run(run_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        try:
+            return workflows.get_run(session, run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Workflow não encontrado.") from exc
+
+    @app.post("/api/workflows/runs")
+    def create_workflow_run(payload: WorkflowRunCreateRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        run_id = workflows.create_run(
+            session_id=payload.session_id,
+            task_id=payload.task_id,
+            workflow_name=payload.workflow_name,
+            summary=payload.summary,
+            steps=[{"step_type": step.step_type, "label": step.label, **step.payload} for step in payload.steps],
+        )
+        session.expire_all()
+        run = session.get(WorkflowRun, run_id)
+        if run is None:
+            raise HTTPException(status_code=500, detail="Workflow não pôde ser criado.")
+        return workflow_run_to_dict(run)
+
+    @app.post("/api/workflows/runs/{run_id}/cancel")
+    def cancel_workflow_run(run_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        try:
+            workflows.cancel_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Workflow não encontrado.") from exc
+        run = session.get(WorkflowRun, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Workflow não encontrado.")
+        return workflow_run_to_dict(run)
 
     @app.get("/", response_model=None)
     def serve_frontend():
@@ -626,7 +721,122 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             summary = memory_graph.get_or_build_summary(session, chat_session)
             session.commit()
             session.refresh(summary)
-        return session_summary_to_dict(summary)
+        payload = session_summary_to_dict(summary)
+        compaction_state = memory_graph.get_or_build_compaction_state(session, chat_session)
+        snapshot = planner.get_snapshot(session, session_id)
+        if snapshot is not None:
+            next_steps = json.loads(snapshot.next_steps_json or "[]")
+            payload["next_steps"] = "\n".join(f"- {item}" for item in next_steps)
+            payload["planner"] = planner_snapshot_to_dict(snapshot)
+        payload["compaction_state"] = compaction_state_to_dict(compaction_state)
+        return payload
+
+    @app.post("/api/chat/sessions/{session_id}/compact")
+    def compact_chat_session(session_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        chat_session = session.get(ChatSession, session_id)
+        if chat_session is None:
+            raise HTTPException(status_code=404, detail="Sessao nao encontrada.")
+        payload = memory_graph.compact_session(session, chat_session)
+        session.commit()
+        return payload
+
+    @app.get("/api/chat/sessions/{session_id}/planner")
+    def get_session_planner(session_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        chat_session = session.get(ChatSession, session_id)
+        if chat_session is None:
+            raise HTTPException(status_code=404, detail="Sessao nao encontrada.")
+        summary = memory_graph.get_or_build_summary(session, chat_session)
+        snapshot = planner.get_snapshot(session, session_id)
+        if snapshot is None:
+            snapshot, tasks = planner.rebuild_from_session(session, chat_session=chat_session, summary=summary)
+            session.commit()
+        else:
+            tasks = planner.list_tasks(session, session_id)
+        return {
+            "snapshot": planner_snapshot_to_dict(snapshot),
+            "tasks": [session_task_to_dict(task) for task in tasks],
+        }
+
+    @app.post("/api/chat/sessions/{session_id}/planner/rebuild")
+    def rebuild_session_planner(session_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        chat_session = session.get(ChatSession, session_id)
+        if chat_session is None:
+            raise HTTPException(status_code=404, detail="Sessao nao encontrada.")
+        summary = memory_graph.get_or_build_summary(session, chat_session)
+        snapshot, tasks = planner.rebuild_from_session(session, chat_session=chat_session, summary=summary)
+        session.commit()
+        return {
+            "snapshot": planner_snapshot_to_dict(snapshot),
+            "tasks": [session_task_to_dict(task) for task in tasks],
+        }
+
+    @app.get("/api/chat/sessions/{session_id}/tasks")
+    def list_session_tasks(session_id: str, session: Session = Depends(get_session)) -> list[dict[str, object]]:
+        chat_session = session.get(ChatSession, session_id)
+        if chat_session is None:
+            raise HTTPException(status_code=404, detail="Sessao nao encontrada.")
+        return [session_task_to_dict(task) for task in planner.list_tasks(session, session_id)]
+
+    @app.post("/api/chat/sessions/{session_id}/tasks")
+    def create_session_task(
+        session_id: str,
+        payload: SessionTaskCreateRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        chat_session = session.get(ChatSession, session_id)
+        if chat_session is None:
+            raise HTTPException(status_code=404, detail="Sessao nao encontrada.")
+        task = planner.create_task(
+            session,
+            session_id=session_id,
+            subject=payload.subject,
+            description=payload.description,
+            active_form=payload.active_form,
+            status=payload.status,
+            owner=payload.owner,
+            blocked_by=payload.blocked_by,
+            blocks=payload.blocks,
+            position=payload.position,
+            metadata=payload.metadata,
+        )
+        session.commit()
+        return session_task_to_dict(task)
+
+    @app.patch("/api/chat/sessions/{session_id}/tasks")
+    def patch_session_tasks(
+        session_id: str,
+        payload: SessionTaskPatchRequest,
+        task_id: str = Query(...),
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        chat_session = session.get(ChatSession, session_id)
+        if chat_session is None:
+            raise HTTPException(status_code=404, detail="Sessao nao encontrada.")
+        task = session.get(SessionTask, task_id)
+        if task is None or task.session_id != session_id:
+            raise HTTPException(status_code=404, detail="Tarefa nao encontrada.")
+        updated = planner.update_task(
+            session,
+            task,
+            subject=payload.subject,
+            description=payload.description,
+            active_form=payload.active_form,
+            status=payload.status,
+            owner=payload.owner,
+            blocked_by=payload.blocked_by,
+            blocks=payload.blocks,
+            position=payload.position,
+            metadata=payload.metadata or None,
+        )
+        session.commit()
+        return session_task_to_dict(updated)
+
+    @app.get("/api/tasks/{task_id}")
+    def get_session_task(task_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        task = session.get(SessionTask, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="Tarefa nao encontrada.")
+        return session_task_to_dict(task)
 
     @app.post("/api/chat/stream")
     def chat_stream(
@@ -671,10 +881,19 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         )
         include_workspace = payload.include_workspace if payload.include_workspace is not None else bool(rag_policy.get("include_workspace", True))
         include_sources = payload.include_sources if payload.include_sources is not None else bool(rag_policy.get("include_sources", True))
-        context_snapshot = memory_graph.build_context_snapshot(
-            session,
-            chat_session,
-            context_budget=payload.context_budget or max_context_chars,
+        context_snapshot = (
+            memory_graph.build_context_snapshot(
+                session,
+                chat_session,
+                context_budget=payload.context_budget or max_context_chars,
+            )
+            if payload.compaction_enabled is not False
+            else {"context_text": summary.current_state, "compaction_state": {}}
+        )
+        planner_context = (
+            planner.task_prompt_context(session, chat_session.id)
+            if payload.task_context_enabled is not False
+            else ""
         )
         recall_result = {"items": [], "status": "disabled", "collection_name": "orquestra_memory_v1", "selector_mode": "hybrid"}
         if memory_enabled:
@@ -748,6 +967,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                                 f"Resumo da sessao:\n{context_snapshot.get('context_text', summary.current_state)}"
                                 if context_snapshot.get("context_text", summary.current_state)
                                 else "",
+                                f"Tarefas ativas:\n{planner_context}" if planner_context else "",
                                 f"Memorias relevantes:\n{memory_context}" if memory_context else "",
                                 "Politica operacional: use memorias e RAG como apoio, mas nao promova nada para dataset sem aprovacao explicita.",
                                 f"Mensagem atual:\n{payload.message}",
@@ -795,6 +1015,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             metadata={"kind": "assistant_turn", "usage": _compact_usage(response.usage)},
         )
         updated_summary = memory_graph.build_session_summary(session, chat_session)
+        planner_snapshot, planner_tasks = planner.rebuild_from_session(session, chat_session=chat_session, summary=updated_summary)
         candidates = candidate_extractor.extract_from_chat_turn(
             session,
             chat_session=chat_session,
@@ -823,8 +1044,9 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 "summary",
                 {
                     "current_state": updated_summary.current_state,
-                    "next_steps": json.loads(updated_summary.sections_json or "{}").get("next_steps", ""),
+                    "next_steps": "\n".join(f"- {item}" for item in json.loads(planner_snapshot.next_steps_json or "[]")),
                     "updated_at": updated_summary.updated_at.isoformat(),
+                    "planner_task_count": len(planner_tasks),
                 },
             )
             yield _sse(
@@ -1113,6 +1335,11 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 include_workspace=payload.include_workspace if payload.include_workspace is not None else True,
                 include_sources=payload.include_sources if payload.include_sources is not None else True,
                 max_context_chars=payload.max_context_chars or 9000,
+                compaction_enabled=payload.compaction_enabled if payload.compaction_enabled is not None else True,
+                planner_enabled=payload.planner_enabled if payload.planner_enabled is not None else True,
+                task_context_enabled=payload.task_context_enabled if payload.task_context_enabled is not None else True,
+                memory_selector_mode=payload.memory_selector_mode or "hybrid",
+                context_budget=payload.context_budget,
             ),
             project_id=payload.project_id,
         )
