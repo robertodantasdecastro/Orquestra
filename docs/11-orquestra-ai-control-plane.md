@@ -49,16 +49,18 @@ No ciclo atual, o catalogo de conectores ja existe, mas a execucao remota real s
 2. criar sessao com objetivo, preset e politica de memoria/RAG
 3. conversar pelo `Assistant Workspace`
 4. revisar `Memory Inbox` antes de promover memoria ou dataset
-5. executar consultas no `RAG Studio` com memoria aprovada quando houver
-6. registrar artifacts e benchmarks no `Model Hub`
-7. preparar jobs remotos no `Train Ops`
+5. compactar contexto e reconstruir planner quando a sessao crescer
+6. executar consultas no `RAG Studio` com memoria aprovada quando houver
+7. disparar workflows locais multi-step no `Execution Center` quando houver validacao ou operacao recorrente
+8. registrar artifacts e benchmarks no `Model Hub`
+9. preparar jobs remotos no `Train Ops`
 
 ## Recursos principais
-- `Assistant Workspace`: conversa multi-provider com resumo, transcript, `Session Profile`, recall e painel `Memoria & RAG`.
-- `Memory Studio`: memoria duravel, topicos, promocao, `Memory Inbox` e training candidates.
+- `Assistant Workspace`: conversa multi-provider com resumo, transcript, `Session Profile`, compactacao de contexto, planner e painel `Memoria & RAG`.
+- `Memory Studio`: memoria duravel, topicos, projecao `memdir`, promocao, `Memory Inbox` e training candidates.
 - `Workspace Browser`: anexar diretorios, inventariar, extrair, abrir e memorizar ativos.
-- `RAG Studio`: consulta local ao engine RAG integrado ao gateway e a colecao Chroma `orquestra_memory_v1`.
-- `Execution Center`: providers, conectores, jobs, registry, comparacao e acoes operacionais.
+- `RAG Studio`: consulta local ao engine RAG integrado ao gateway, a colecao Chroma `orquestra_memory_v1` e ao seletor de memoria hibrido.
+- `Execution Center`: providers, conectores, jobs, registry, comparacao, workflows locais multi-step e acoes operacionais.
 - `Operations Dashboard`: status de servicos, processos, memoria, execucao e artefatos macOS.
 
 ## Operacao local
@@ -114,6 +116,12 @@ Validacao de pacote:
 - `GET /api/chat/sessions/{id}/profile`
 - `PUT /api/chat/sessions/{id}/profile`
 - `GET /api/chat/sessions/{id}/messages`
+- `POST /api/chat/sessions/{id}/compact`
+- `GET /api/chat/sessions/{id}/planner`
+- `POST /api/chat/sessions/{id}/planner/rebuild`
+- `GET /api/chat/sessions/{id}/tasks`
+- `POST /api/chat/sessions/{id}/tasks`
+- `PATCH /api/chat/sessions/{id}/tasks`
 - `POST /api/chat/stream`
 - `GET /api/memory`
 - `GET /api/memory/candidates`
@@ -121,6 +129,10 @@ Validacao de pacote:
 - `POST /api/memory/candidates/{id}/reject`
 - `POST /api/memory/upsert`
 - `POST /api/rag/query`
+- `GET /api/workflows/runs`
+- `POST /api/workflows/runs`
+- `GET /api/workflows/runs/{id}`
+- `POST /api/workflows/runs/{id}/cancel`
 - `GET /api/training/jobs`
 - `POST /api/training/jobs`
 - `GET /api/remote/jobs`
@@ -131,5 +143,5 @@ Validacao de pacote:
 ## Notas de projeto
 - `claude-code/v1` deve seguir somente como referencia de UX e arquitetura, nao como base de codigo.
 - o `rag/llm.py` agora aceita providers do gateway sem quebrar o fluxo RAG antigo.
-- o frontend novo e `chat-first`, mas unifica memoria, RAG, modelos, jobs e configuracao no mesmo shell.
+- o frontend novo e `chat-first`, mas unifica memoria, compactacao, planner, RAG, workflows, modelos, jobs e configuracao no mesmo shell.
 - `training jobs` e `remote jobs` hoje registram intencao e metadados na aplicacao, mas ainda nao despacham execucao remota real.

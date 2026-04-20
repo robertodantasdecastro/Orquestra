@@ -25,8 +25,11 @@ Ele permite:
 - criar sessoes por projeto com objetivo obrigatorio e preset operacional;
 - escolher provider e modelo;
 - conversar em modo streaming;
-- usar resumo da sessao como contexto operacional;
+- usar resumo da sessao e estado de compactacao como contexto operacional;
 - recuperar memoria aprovada de `orquestra_memory_v1` antes de responder;
+- recuperar contexto por pipeline `summary + recent tail + recalled memory + fontes`;
+- compactar sessoes longas manualmente ou por orcamento de contexto;
+- manter `next_steps` reais via planner hibrido;
 - sugerir candidatos revisaveis no `Memory Inbox`;
 - promover memoria duravel somente apos aprovacao explicita;
 - gerar training candidates somente quando o modo dataset estiver habilitado e o candidato for aprovado;
@@ -46,6 +49,8 @@ O Memory Studio gerencia a memoria do projeto.
 Recursos:
 - listagem de memorias recentes;
 - topicos de memoria duravel;
+- memdir projetado em arquivos para sessao, projeto e escopo global;
+- filtros por `memory_kind`, `scope`, sessao e projeto;
 - recall por consulta;
 - promocao manual de contexto para topico;
 - revisao de candidatos do `Memory Inbox`;
@@ -61,6 +66,14 @@ Escopos recomendados:
 - `persona_memory`: estilo, tom e restricoes aprovadas;
 - `source_fact`: fatos com fonte/citacao;
 - `training_signal`: material candidato a dataset, sempre revisado.
+
+Tipos de memoria suportados:
+- `user`
+- `feedback`
+- `project`
+- `reference`
+- `persona`
+- `dataset`
 
 ### 3. Workspace Browser
 O Workspace Browser anexa diretorios e permite leitura multimodal.
@@ -118,6 +131,9 @@ Recursos:
 - leitura de logs de jobs quando houver caminho registrado;
 - registro de modelos/adapters;
 - comparacao de benchmarks;
+- execucao local multi-step por `WorkflowRun` e `WorkflowStepRun`;
+- acompanhamento de progresso por passo, log tail e cancelamento;
+- vinculacao opcional entre workflow, sessao e tarefa do planner;
 - disparo de acoes operacionais:
   - bootstrap;
   - validacao;
@@ -192,9 +208,12 @@ Dados principais:
 - providers;
 - sessoes e mensagens;
 - transcript e resumo;
+- estado de compactacao;
 - memoria;
 - topicos;
 - candidates;
+- tarefas e snapshot de planner;
+- runs e steps de workflow;
 - jobs;
 - registry;
 - scans e ativos de workspace.
@@ -205,6 +224,7 @@ Os artefatos vivem em `experiments/orquestra/` por padrao.
 Subpastas importantes:
 - `memorygraph/transcripts`;
 - `memorygraph/session_summaries`;
+- `memorygraph/memdir`;
 - `memorygraph/topics`;
 - `memorygraph/manifests`;
 - `memorygraph/training_candidates`;
@@ -414,10 +434,25 @@ O Orquestra gera candidatos revisaveis apos as respostas. Esses candidatos nao v
 1. Abra `Assistant Workspace`.
 2. Selecione uma sessao.
 3. Abra o painel `Memoria & RAG`.
-4. Leia cada candidato pendente com escopo, confianca e conteudo resumido.
+4. Leia cada candidato pendente com escopo, `memory_kind`, confianca e conteudo resumido.
 5. Use `Aprovar` para criar `MemoryRecord` e indexar em `orquestra_memory_v1`.
 6. Use `Rejeitar` para descartar a sugestao.
 7. Ative `dataset apos aprovacao` somente quando quiser gerar `TrainingCandidate` a partir da aprovacao.
+
+### Compactar uma sessao
+1. Abra `Assistant Workspace`.
+2. Selecione a sessao longa que deseja estabilizar.
+3. No painel lateral, use `Compactar contexto`.
+4. Confirme que o bloco de compactacao mostra quantidade de mensagens consolidadas e `next_steps`.
+5. Continue o chat normalmente; o prompt passa a priorizar `summary + recent tail + recalled memory`.
+
+### Trabalhar com planner
+1. Abra `Assistant Workspace`.
+2. Selecione a sessao.
+3. No painel lateral, revise `Planner` e `next_steps`.
+4. Use `Validar planner` para reconstruir o snapshot a partir do resumo atual.
+5. Adicione uma nova tarefa a partir do prompt atual ou atualize o status de uma tarefa existente.
+6. Use tarefas da sessao para guiar execucao, sem transformar isso automaticamente em memoria duravel.
 
 ### Promover memoria
 1. Abra `Memory Studio`.
@@ -452,6 +487,14 @@ O Orquestra gera candidatos revisaveis apos as respostas. Esses candidatos nao v
 
 Nesta fase, isso registra intencao e metadados. Execucao remota real sera ligada depois.
 
+### Executar um workflow local
+1. Abra `Execution Center`.
+2. Revise a lista `Local workflows`.
+3. Dispare o workflow de validacao ou crie um novo run pela API.
+4. Acompanhe status, progresso por passo e `log tail`.
+5. Use `Cancelar` quando precisar interromper a execucao.
+6. Depois do restart da app, reabra o Execution Center para confirmar a recuperacao do run persistido.
+
 ### Registrar modelo
 1. Abra `Execution Center`.
 2. Registre artefato no registry.
@@ -467,12 +510,16 @@ Execute:
 
 Essa validacao cobre:
 - compilacao Python;
+- `pytest` do backend/API;
 - sintaxe dos scripts shell;
-- build web;
+- `vitest`, `tsc -b` e build web;
 - `cargo check` do Tauri;
 - smoke da API;
 - chat com perfil de sessao, resumo, resume e transcript;
+- compactacao de sessao e persistencia de `next_steps`;
+- planner, tarefas e consistencia de resumo;
 - Memory Inbox, aprovacao e recall RAG associado;
+- workflow local multi-step;
 - scan de workspace;
 - preview e memoria.
 
@@ -562,6 +609,9 @@ Pronto hoje:
 - `.app` e DMG gerados localmente;
 - dashboard operacional;
 - MemoryGraph V2;
+- compactacao completa de contexto;
+- planner hibrido com `SessionTask` e `PlannerSnapshot`;
+- executor local multi-step com `WorkflowRun` e `WorkflowStepRun`;
 - Workspace Multimodal;
 - RAG local integrado;
 - memoria associada ao RAG com `Memory Inbox`;
@@ -573,7 +623,7 @@ Ainda posterior:
 - assinatura/notarizacao macOS;
 - OCR completo;
 - transcricao real validada em todos os formatos;
-- camada automatizada de testes alem do smoke principal;
+- conectores remotos com compute real;
 - Keychain para credenciais.
 
 ## Checklist de Fechamento

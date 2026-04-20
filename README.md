@@ -34,10 +34,13 @@ Principios do projeto:
 ### MemoryGraph
 - Transcript bruto em JSONL por sessao.
 - Resumo estruturado de sessao separado do transcript.
+- Compactacao persistente de contexto com `SessionCompactionState`, preservando resumo, decisoes, `next_steps`, falhas recentes e cauda curta da conversa.
 - `Session Profile` salvo em `ChatSession.metadata_json`, com `objective`, `preset`, `memory_policy`, `rag_policy` e `persona_config`.
 - Memoria duravel por topicos e escopos.
+- Projecao operacional em arquivos sob `artifacts_root/memorygraph/memdir/global`, `projects/<slug>` e `sessions/<session_id>`.
+- Tipos de memoria suportados: `user`, `feedback`, `project`, `reference`, `persona` e `dataset`.
 - `Memory Inbox` com candidatos revisaveis antes de qualquer promocao duravel.
-- Recall semantico com fallback lexical.
+- Recall hibrido com shortlist lexical, reforco vetorial em `orquestra_memory_v1` e fallback heuristico.
 - Promocao manual de fatos/contextos para memoria.
 - Training candidates para preparar datasets futuros somente depois de aprovacao explicita.
 - Resume de sessao para retomar continuidade operacional.
@@ -66,7 +69,8 @@ Principios do projeto:
 ### RAG local
 - Consulta ao engine RAG embutido.
 - Colecao Chroma `orquestra_memory_v1` para memoria aprovada associada ao RAG.
-- Recall de chat com orcamento pequeno: memoria aprovada, resumo operacional e fontes locais quando disponiveis.
+- Recall de chat com orcamento pequeno: `summary + recent tail + recalled memory + fontes locais` quando disponiveis.
+- Seletor de contexto `hybrid` com filtros por sessao, projeto, escopo e `memory_kind`.
 - Fallback lexical quando Chroma, embeddings ou colecoes estiverem indisponiveis.
 - Integracao com o gateway multi-provider.
 - Persistencia local de interacoes quando solicitado.
@@ -81,9 +85,19 @@ Web e desktop exibem o mesmo painel com:
 - scans de workspace;
 - memoria e training candidates;
 - candidatos pendentes de revisao no `Memory Inbox`;
+- estado de compactacao da sessao e `next_steps` persistidos;
+- planner hibrido com tarefas reais da sessao;
+- workflows locais multi-step com progresso, logs e cancelamento;
 - providers, conectores, jobs e registry;
 - artefatos de build, app, DMG, instalador e desinstalador;
 - acoes operacionais disparaveis pela UI.
+
+### Planner e execucao local
+- `PlannerSnapshot` persistido por sessao com `objective`, `strategy`, `next_steps` e riscos.
+- `SessionTask` com estados `pending`, `in_progress`, `blocked`, `completed`, `failed` e `cancelled`.
+- `WorkflowRun` e `WorkflowStepRun` para execucao local multi-step.
+- Passos locais suportados na V1: `ops_action`, `rag_query`, `workspace_query`, `workspace_extract`, `memory_review_batch` e `shell_safe`.
+- Retomada apos restart com logs persistidos em arquivo e recuperacao de runs interrompidos.
 
 ### Train Ops e Registry
 - Catalogo de conectores:
@@ -118,10 +132,14 @@ Web e desktop exibem o mesmo painel com:
 ## Estado atual
 - Backend, frontend web e shell desktop estao integros no fluxo local.
 - `./scripts/validate_orquestra.sh` e a verificacao automatizada principal.
+- A validacao principal agora executa `pytest`, `vitest`, `tsc -b`, `vite build`, `cargo check` e smoke de API/workflow.
 - O build desktop do Tauri fecha localmente no macOS e gera `.app` + `.dmg`.
 - `./scripts/validate_orquestra_macos_package.sh` valida bundle, DMG, `Info.plist`, scripts e assinatura local/ad-hoc.
 - Chat, memoria, RAG e Workspace Multimodal passam em smoke local.
 - Sessao com objetivo/preset, memoria revisavel, aprovacao de candidato e recall RAG associado estao integrados na V1 local.
+- Sessao longa usa compactacao persistente em vez de transcript integral no prompt.
+- Planner hibrido e tarefas reais ja aparecem no backend e na UI web/desktop.
+- Execution Center exibe workflows locais multi-step com status por passo e log tail.
 - Providers reais sao opcionais; a validacao usa modo mock/local-safe.
 - Dashboard operacional, instalador, desinstalador e manual estao documentados.
 - `/api/health` e o dashboard expõem `app_version`, `schema_version`, `schema_target_version`, estado de migração, manifesto e backups recentes.

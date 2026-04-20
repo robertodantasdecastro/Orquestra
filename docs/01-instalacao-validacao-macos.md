@@ -42,8 +42,9 @@ cd /caminho/para/Orquestra
 
 Essa validação executa:
 - `py_compile` do backend e engine `RAG`;
+- `pytest -q` para backend/API;
 - `bash -n` nos scripts;
-- `tsc -b` + `vite build` no frontend;
+- `vitest`, `tsc -b` e `vite build` no frontend;
 - `cargo check` no shell `Tauri`;
 - smoke local da API com:
   - criação de sessão com objetivo/preset;
@@ -51,6 +52,9 @@ Essa validação executa:
   - candidato revisável de memória;
   - aprovação de candidato com `MemoryRecord`;
   - consulta RAG com memória associada;
+  - compactação manual de sessão;
+  - reconstrução do planner e criação de tarefa;
+  - execução de workflow local multi-step;
   - resumo e resume;
   - transcript;
   - scan de diretório;
@@ -204,9 +208,10 @@ Para provider local:
 - a aplicação agora expõe um dashboard operacional unificado em web e desktop para gestão de runtime;
 - a versão desktop macOS gera app e DMG locais em `orquestra_web/src-tauri/target/release/bundle/`;
 - o instalador real foi validado com runtime em `~/Library/Application Support/Orquestra/runtime`, LaunchAgent `ai.orquestra.api`, API em `/api/health` e app aberto em `~/Applications/Orquestra AI.app`;
-- o upgrade real foi validado com backup do banco, manifesto de instalação e `/api/health` expondo `app_version`, `schema_version=2`, `schema_target_version=2`, `migration_required=false`, modo do runtime e backups recentes;
+- o upgrade real foi validado com backup do banco, manifesto de instalação e `/api/health` expondo `app_version`, `schema_version` alinhado ao `schema_target_version`, `migration_required=false`, modo do runtime e backups recentes;
 - o app desktop usa a mesma UI web com Assistant Workspace, Memory Inbox, RAG associado, Workspace Browser, dashboards e Execution Center;
 - ações como bootstrap, validação, build web, build desktop, instalação e desinstalação podem ser disparadas pela superfície de execução;
+- a UI agora também expõe compactação de contexto, planner persistente e workflows locais multi-step;
 - o fluxo remoto de treino e conectores continua propositalmente adiado nesta fase.
 - a marca vetorial do Orquestra está em `assets/brand/` e já aparece na UI web/desktop.
 

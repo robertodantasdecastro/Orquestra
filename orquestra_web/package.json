@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run --environment jsdom",
     "preview": "vite preview --host 127.0.0.1 --port 4177",
     "desktop:dev": "VITE_ORQUESTRA_API_BASE=http://127.0.0.1:8808 tauri dev",
     "desktop:build": "VITE_ORQUESTRA_API_BASE=http://127.0.0.1:8808 tauri build"
@@ -15,11 +16,15 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
     "@tauri-apps/cli": "^2.1.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8",
+    "jsdom": "^25.0.1"
   }
 }

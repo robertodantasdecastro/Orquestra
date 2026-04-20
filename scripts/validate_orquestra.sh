@@ -15,12 +15,16 @@ export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION="${PROTOCOL_BUFFERS_PYTHON_IMPLEME
 echo "[orquestra] py_compile"
 python -m py_compile orquestra_ai/*.py rag/*.py training/local/*.py
 
+echo "[orquestra] pytest"
+PYTHONPATH=. pytest -q
+
 echo "[orquestra] shell syntax"
 bash -n scripts/*.sh
 
 echo "[orquestra] frontend build"
 (
   cd orquestra_web
+  ./node_modules/.bin/vitest run --environment jsdom
   ./node_modules/.bin/tsc -b
   ./node_modules/.bin/vite build
 )
@@ -111,6 +115,62 @@ with TestClient(app) as client:
 
     summary = client.get(f"/api/chat/sessions/{session_id}/summary")
     assert summary.status_code == 200, summary.text
+    summary_payload = summary.json()
+    assert "compaction_state" in summary_payload, "summary sem compaction_state"
+
+    compact = client.post(f"/api/chat/sessions/{session_id}/compact")
+    assert compact.status_code == 200, compact.text
+
+    planner = client.post(f"/api/chat/sessions/{session_id}/planner/rebuild")
+    assert planner.status_code == 200, planner.text
+    planner_payload = planner.json()
+    assert planner_payload["tasks"], "planner não gerou tasks"
+
+    task = client.post(
+        f"/api/chat/sessions/{session_id}/tasks",
+        json={"subject": "Executar workflow de validação", "description": "Cobrir shell seguro e rag query mockada."},
+    )
+    assert task.status_code == 200, task.text
+
+    workflow = client.post(
+        "/api/workflows/runs",
+        json={
+            "session_id": session_id,
+            "workflow_name": "validate-smoke",
+            "summary": "Workflow local de smoke",
+            "steps": [
+                {"step_type": "shell_safe", "label": "Git diff", "payload": {"command": "git diff --check"}},
+                {
+                    "step_type": "rag_query",
+                    "label": "RAG mock",
+                    "payload": {
+                        "question": "Qual é o objetivo da sessão de validação?",
+                        "session_id": session_id,
+                        "mock_llm": True,
+                        "memory_enabled": True,
+                    },
+                },
+            ],
+        },
+    )
+    assert workflow.status_code == 200, workflow.text
+    workflow_id = workflow.json()["id"]
+
+    import time
+
+    final_workflow = None
+    for _ in range(120):
+        current = client.get(f"/api/workflows/runs/{workflow_id}")
+        assert current.status_code == 200, current.text
+        final_workflow = current.json()
+        if final_workflow["status"] in {"succeeded", "failed", "cancelled", "interrupted"}:
+            break
+        time.sleep(0.25)
+
+    assert final_workflow is not None, "workflow sem payload final"
+    assert final_workflow["status"] == "succeeded", final_workflow
+    assert len(final_workflow["steps"]) == 2, final_workflow
+    assert [step["status"] for step in final_workflow["steps"]] == ["succeeded", "succeeded"], final_workflow
 
     resume = client.post(f"/api/chat/sessions/{session_id}/resume")
     assert resume.status_code == 200, resume.text
