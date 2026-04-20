@@ -273,6 +273,13 @@ O comando oficial continua sendo:
 ./scripts/validate_orquestra.sh
 ```
 
+Quando quiser incluir provider real na validacao:
+
+```bash
+./scripts/validate_orquestra.sh --real-provider lmstudio
+ORQUESTRA_VALIDATE_REAL_PROVIDERS=openai ./scripts/validate_orquestra.sh
+```
+
 Ele cobre:
 - backend
 - frontend
@@ -281,6 +288,7 @@ Ele cobre:
 - `cargo check`
 - pacote macOS, quando disponivel
 - smoke de sessao, memoria, compactacao, planner, workflow, workspace e RAG
+- smoke real opcional por provider quando solicitado
 
 Para readiness de providers reais sem sair do fluxo local-safe:
 
@@ -293,6 +301,13 @@ Use modo estrito quando quiser travar um provider minimo antes de operar:
 ```bash
 ./scripts/check_orquestra_providers.sh --strict --require lmstudio
 ./scripts/check_orquestra_providers.sh --strict --require litellm_proxy
+```
+
+Para um smoke fim a fim com chamada real de provider:
+
+```bash
+./scripts/validate_orquestra_real_provider_smoke.sh --provider lmstudio
+./scripts/validate_orquestra_real_provider_smoke.sh --provider openai
 ```
 
 ## Checkpoint e retomada
@@ -321,5 +336,5 @@ Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e gi
 - conectores remotos ainda funcionam como catalogo e registro de intencao
 - EC2 continua fora desta fase
 - OCR e transcricao real opcional ainda podem evoluir
-- smokes integrados por provider real ainda nao fazem parte da validacao oficial
+- smokes reais por provider sao opcionais e exigem ativacao explicita
 - distribuicao publica com assinatura/notarizacao final ainda nao foi fechada

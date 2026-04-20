@@ -201,6 +201,13 @@ O comando oficial de validacao e:
 ./scripts/validate_orquestra.sh
 ```
 
+Para incluir smoke opcional contra provider real:
+
+```bash
+./scripts/validate_orquestra.sh --real-provider lmstudio
+ORQUESTRA_VALIDATE_REAL_PROVIDERS=openai ./scripts/validate_orquestra.sh
+```
+
 Ele executa:
 - `py_compile`
 - `pytest -q`
@@ -211,6 +218,7 @@ Ele executa:
 - `cargo check`
 - validacao do pacote macOS quando `.app` e `.dmg` existem
 - smoke da API cobrindo sessao, memoria, compactacao, planner, workflow, workspace e RAG
+- smoke real opcional por provider quando `--real-provider` ou `ORQUESTRA_VALIDATE_REAL_PROVIDERS` forem usados
 
 ## Providers reais
 Para sair do modo mock com mais seguranca, use o checklist de providers:
@@ -231,6 +239,13 @@ O script informa:
 - disponibilidade live de `Ollama`
 - disponibilidade live do `LiteLLM Proxy`, quando configurado
 - presenca das chaves de `OpenAI`, `Anthropic` e `DeepSeek`
+
+Para validar um provider real fim a fim pela API local:
+
+```bash
+./scripts/validate_orquestra_real_provider_smoke.sh --provider lmstudio
+./scripts/validate_orquestra_real_provider_smoke.sh --provider openai
+```
 
 ## Checkpoint e retomada
 O protocolo de continuidade do repositório foi reduzido para quatro fontes curtas:
@@ -255,7 +270,7 @@ Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e gi
 Limites atuais:
 - conectores remotos ainda operam como catalogo/intencao, sem execucao remota real
 - EC2 continua adiado para o proximo ciclo
-- providers reais ja podem ser checados, mas ainda faltam smokes integrados por provider sem modo mock
+- providers reais agora podem ser validados por smoke opcional sem contaminar a validacao padrao
 - distribuicao publica ainda nao usa assinatura/notarizacao final
 
 ## Documentacao

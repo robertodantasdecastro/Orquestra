@@ -1,32 +1,32 @@
 # Orquestra Continuity
 
 - Branch atual: `main`
-- Ultimo commit: `23667cb`
-- Etapa concluida: `Reavaliacao do ciclo atual e readiness inicial de providers reais`
-- Estado do worktree: `Pronto para commit em main com script de prontidão de providers e handoff atualizado`
+- Ultimo commit: `2322af9`
+- Etapa concluida: `Smoke opcional de providers reais integrado à validação oficial`
+- Estado do worktree: `Em validação final antes do commit em main com scripts e documentação atualizados`
 - Validacoes executadas:
-  - `./scripts/check_orquestra_providers.sh`
+  - `bash -n scripts/*.sh`
   - `./scripts/validate_orquestra.sh`
   - `git diff --check`
 - Pendencias abertas:
-  - integrar smoke opcional por provider real sem depender apenas de modo mock
   - evoluir OCR/transcricao opcional para assets multimodais ainda sem extração mais rica
   - ligar execucao remota real de conectores, com EC2 ainda fora da entrega atual
   - fechar assinatura/notarizacao se houver distribuicao publica
-- Proxima acao exata: `Iniciar um ciclo curto em main para smoke opcional de providers reais, reaproveitando scripts/check_orquestra_providers.sh como base`
+- Proxima acao exata: `Iniciar um ciclo curto focado em OCR/transcricao opcional para assets multimodais, preservando o fluxo inventory-first`
 - Arquivos principais tocados:
+  - `scripts/validate_orquestra.sh`
+  - `scripts/validate_orquestra_real_provider_smoke.sh`
   - `README.md`
   - `docs/01-instalacao-validacao-macos.md`
   - `docs/02-manual-operacional.md`
-  - `scripts/check_orquestra_providers.sh`
   - `.codex/memory/orquestra-continuity.md`
 - O que mudou:
-  - a base foi reavaliada a partir de `main` sem conflitos de merge ou worktree sujo
-  - foi adicionado `scripts/check_orquestra_providers.sh` para prontidão local de LM Studio, Ollama, LiteLLM Proxy e chaves remotas
-  - README e manuais agora apontam para essa checagem antes de sair do modo mock
+  - a validacao oficial agora aceita smoke real opcional por provider via `--real-provider` ou `ORQUESTRA_VALIDATE_REAL_PROVIDERS`
+  - foi adicionado `scripts/validate_orquestra_real_provider_smoke.sh` para chamar providers reais fim a fim pela API local
+  - README e manuais operacionais agora mostram readiness e smoke real como trilhos separados
 - O que validar:
+  - rodar smoke real somente quando houver provider pronto e custo aceito pelo operador
   - commit em `main` com esse checkpoint
-  - retomada futura pode partir deste handoff curto sem releitura da thread
 - Caminhos de logs/artefatos:
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.log`
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.json`

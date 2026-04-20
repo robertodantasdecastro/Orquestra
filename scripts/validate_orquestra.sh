@@ -4,6 +4,62 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+REAL_PROVIDERS=()
+
+usage() {
+  cat <<'EOF'
+Uso: ./scripts/validate_orquestra.sh [--real-provider <id>]
+
+Executa a validação oficial do Orquestra.
+
+Opções:
+  --real-provider id  Adiciona um smoke opcional end-to-end contra provider real.
+                      Pode ser repetido.
+  -h, --help          Mostra esta ajuda.
+
+Também aceita:
+  ORQUESTRA_VALIDATE_REAL_PROVIDERS=openai,lmstudio
+EOF
+}
+
+add_real_provider_list() {
+  local raw="$1"
+  local normalized
+  normalized="${raw//,/ }"
+  local item
+  for item in $normalized; do
+    if [[ -n "$item" ]]; then
+      REAL_PROVIDERS+=("$item")
+    fi
+  done
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --real-provider)
+      if [[ $# -lt 2 ]]; then
+        echo "[orquestra] --real-provider precisa de um id" >&2
+        exit 1
+      fi
+      REAL_PROVIDERS+=("$2")
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "[orquestra] argumento desconhecido: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ ${#REAL_PROVIDERS[@]} -eq 0 && -n "${ORQUESTRA_VALIDATE_REAL_PROVIDERS:-}" ]]; then
+  add_real_provider_list "${ORQUESTRA_VALIDATE_REAL_PROVIDERS}"
+fi
+
 if [ ! -d ".venv" ]; then
   echo "[orquestra] .venv ausente; rode ./scripts/bootstrap_orquestra.sh primeiro" >&2
   exit 1
@@ -208,5 +264,16 @@ with TestClient(app) as client:
 
 print("ORQUESTRA_VALIDATE_OK")
 PY
+
+if [[ ${#REAL_PROVIDERS[@]} -gt 0 ]]; then
+  echo "[orquestra] real provider smoke"
+  REAL_PROVIDER_ARGS=()
+  for provider in "${REAL_PROVIDERS[@]}"; do
+    REAL_PROVIDER_ARGS+=(--provider "$provider")
+  done
+  ./scripts/validate_orquestra_real_provider_smoke.sh "${REAL_PROVIDER_ARGS[@]}"
+else
+  echo "[orquestra] real provider smoke skipped (use --real-provider <id> ou ORQUESTRA_VALIDATE_REAL_PROVIDERS=...)"
+fi
 
 echo "[orquestra] validação concluída"

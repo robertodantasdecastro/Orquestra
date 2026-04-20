@@ -75,6 +75,12 @@ Modos uteis:
 ./scripts/validate_orquestra.sh
 ```
 
+Para incluir smoke real opcional de provider:
+```bash
+./scripts/validate_orquestra.sh --real-provider lmstudio
+ORQUESTRA_VALIDATE_REAL_PROVIDERS=openai ./scripts/validate_orquestra.sh
+```
+
 Essa validacao executa:
 - `python -m py_compile` no backend, RAG e utilitarios locais
 - `pytest -q`
@@ -94,9 +100,11 @@ Essa validacao executa:
   - workflow local multi-step
   - resume e transcript
   - scan de workspace, preview, extracao e memorize
+  - smoke real opcional por provider quando solicitado
 
 Observacoes:
 - o smoke usa `mock_response` para nao depender de provider remoto real
+- o smoke real so roda quando o operador pedir explicitamente
 - esse comando e a porta oficial de validacao do repositório
 
 ## Build do desktop e pacote macOS
@@ -204,6 +212,12 @@ Exemplos de gate estrito:
 ./scripts/check_orquestra_providers.sh --strict --require openai
 ```
 
+Smoke real fim a fim:
+```bash
+./scripts/validate_orquestra_real_provider_smoke.sh --provider lmstudio
+./scripts/validate_orquestra_real_provider_smoke.sh --provider openai
+```
+
 Entradas comuns:
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
@@ -250,3 +264,4 @@ Revise:
 - a validacao principal cobre memoria, compactacao, planner e workflow
 - o runtime segue local-first e nao depende do repositorio antigo `Local_RAG`
 - conectores remotos continuam como catalogo/intencao, com EC2 adiado para proxima fase
+- providers reais ja podem ser validados por smoke opcional sem contaminar a validacao padrao
