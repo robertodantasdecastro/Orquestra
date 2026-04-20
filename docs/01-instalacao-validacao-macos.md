@@ -193,6 +193,17 @@ Quando quiser habilitar providers reais:
 - use `LM Studio` para o provider local
 - mantenha chaves remotas fora do Git
 
+Checklist rapido:
+```bash
+./scripts/check_orquestra_providers.sh
+```
+
+Exemplos de gate estrito:
+```bash
+./scripts/check_orquestra_providers.sh --strict --require lmstudio
+./scripts/check_orquestra_providers.sh --strict --require openai
+```
+
 Entradas comuns:
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`

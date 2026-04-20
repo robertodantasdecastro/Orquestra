@@ -1,29 +1,32 @@
 # Orquestra Continuity
 
 - Branch atual: `main`
-- Ultimo commit: `56745b0`
-- Etapa concluida: `Documentacao consolidada e publicada em main`
-- Estado do worktree: `Pronto para checkpoint final apos sincronizacao com origin/main`
+- Ultimo commit: `23667cb`
+- Etapa concluida: `Reavaliacao do ciclo atual e readiness inicial de providers reais`
+- Estado do worktree: `Pronto para commit em main com script de prontidão de providers e handoff atualizado`
 - Validacoes executadas:
+  - `./scripts/check_orquestra_providers.sh`
   - `./scripts/validate_orquestra.sh`
   - `git diff --check`
 - Pendencias abertas:
-  - se necessario depois, abrir um ciclo novo para providers reais, OCR/transcricao opcional e prontidao de Train Ops/Registry
-- Proxima acao exata: `Seguir para o proximo ciclo de produto a partir de main, usando o handoff curto e evitando releitura completa da thread`
+  - integrar smoke opcional por provider real sem depender apenas de modo mock
+  - evoluir OCR/transcricao opcional para assets multimodais ainda sem extração mais rica
+  - ligar execucao remota real de conectores, com EC2 ainda fora da entrega atual
+  - fechar assinatura/notarizacao se houver distribuicao publica
+- Proxima acao exata: `Iniciar um ciclo curto em main para smoke opcional de providers reais, reaproveitando scripts/check_orquestra_providers.sh como base`
 - Arquivos principais tocados:
   - `README.md`
   - `docs/01-instalacao-validacao-macos.md`
   - `docs/02-manual-operacional.md`
-  - `docs/11-orquestra-ai-control-plane.md`
-  - `docs/12-orquestra-v2-memorygraph-workspace.md`
+  - `scripts/check_orquestra_providers.sh`
   - `.codex/memory/orquestra-continuity.md`
 - O que mudou:
-  - o `README` foi reescrito como porta de entrada atual do produto
-  - a documentacao de instalacao, manual, control plane e MemoryGraph/Workspace foi alinhada com as 7 areas reais da UI
-  - os textos agora refletem memoria hibrida, compactacao, planner, workflows locais, RAG operacional e instalacao macOS sem nomes antigos de tela
+  - a base foi reavaliada a partir de `main` sem conflitos de merge ou worktree sujo
+  - foi adicionado `scripts/check_orquestra_providers.sh` para prontidão local de LM Studio, Ollama, LiteLLM Proxy e chaves remotas
+  - README e manuais agora apontam para essa checagem antes de sair do modo mock
 - O que validar:
-  - `main` ja esta sincronizada com o remoto
-  - a retomada pode partir diretamente deste checkpoint
+  - commit em `main` com esse checkpoint
+  - retomada futura pode partir deste handoff curto sem releitura da thread
 - Caminhos de logs/artefatos:
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.log`
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.json`

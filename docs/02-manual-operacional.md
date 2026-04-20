@@ -282,6 +282,19 @@ Ele cobre:
 - pacote macOS, quando disponivel
 - smoke de sessao, memoria, compactacao, planner, workflow, workspace e RAG
 
+Para readiness de providers reais sem sair do fluxo local-safe:
+
+```bash
+./scripts/check_orquestra_providers.sh
+```
+
+Use modo estrito quando quiser travar um provider minimo antes de operar:
+
+```bash
+./scripts/check_orquestra_providers.sh --strict --require lmstudio
+./scripts/check_orquestra_providers.sh --strict --require litellm_proxy
+```
+
 ## Checkpoint e retomada
 Quando houver risco de interrupcao por limite do Codex, reinicio da maquina ou troca de login, use sempre este protocolo:
 
@@ -308,4 +321,5 @@ Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e gi
 - conectores remotos ainda funcionam como catalogo e registro de intencao
 - EC2 continua fora desta fase
 - OCR e transcricao real opcional ainda podem evoluir
+- smokes integrados por provider real ainda nao fazem parte da validacao oficial
 - distribuicao publica com assinatura/notarizacao final ainda nao foi fechada

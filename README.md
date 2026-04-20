@@ -212,6 +212,26 @@ Ele executa:
 - validacao do pacote macOS quando `.app` e `.dmg` existem
 - smoke da API cobrindo sessao, memoria, compactacao, planner, workflow, workspace e RAG
 
+## Providers reais
+Para sair do modo mock com mais seguranca, use o checklist de providers:
+
+```bash
+./scripts/check_orquestra_providers.sh
+```
+
+Modo estrito para um provider especifico:
+
+```bash
+./scripts/check_orquestra_providers.sh --strict --require lmstudio
+./scripts/check_orquestra_providers.sh --strict --require openai
+```
+
+O script informa:
+- disponibilidade live de `LM Studio`
+- disponibilidade live de `Ollama`
+- disponibilidade live do `LiteLLM Proxy`, quando configurado
+- presenca das chaves de `OpenAI`, `Anthropic` e `DeepSeek`
+
 ## Checkpoint e retomada
 O protocolo de continuidade do repositório foi reduzido para quatro fontes curtas:
 
@@ -235,6 +255,7 @@ Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e gi
 Limites atuais:
 - conectores remotos ainda operam como catalogo/intencao, sem execucao remota real
 - EC2 continua adiado para o proximo ciclo
+- providers reais ja podem ser checados, mas ainda faltam smokes integrados por provider sem modo mock
 - distribuicao publica ainda nao usa assinatura/notarizacao final
 
 ## Documentacao
