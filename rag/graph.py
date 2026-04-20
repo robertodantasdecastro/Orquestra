@@ -19,6 +19,7 @@ class RagState(TypedDict, total=False):
     security_collection: str
     retrieved_docs: list[dict[str, Any]]
     memory_context: str
+    external_memory_context: str
     answer: str
     citations: list[dict[str, Any]]
     model_name: str
@@ -71,19 +72,32 @@ class RagWorkflow:
 
     def _load_memory(self, state: RagState) -> RagState:
         session_id = state.get("session_id") or default_session_id()
+        memory_parts = [
+            self.memory.build_memory_context(session_id),
+            state.get("external_memory_context", ""),
+        ]
         return {
             "session_id": session_id,
             "interaction_id": state.get("interaction_id") or f"rag-{slugify(utc_now())}",
-            "memory_context": self.memory.build_memory_context(session_id),
+            "memory_context": "\n\n".join(part for part in memory_parts if part).strip(),
         }
+
+    def _safe_query_collection(self, collection_name: str, question: str, *, top_k: int) -> list[Any]:
+        try:
+            return query_collection(self.paths, collection_name, question, top_k=top_k)
+        except Exception:
+            return []
 
     def _retrieve(self, state: RagState) -> RagState:
         question = state["question"]
         collection_name = state.get("collection_name") or self.default_collection
         security_collection = state.get("security_collection") or self.security_collection
-        retrieved = query_collection(self.paths, collection_name, question, top_k=self.top_k)
-        security_hits = query_collection(self.paths, security_collection, question, top_k=2)
-        memory_hits = self.memory.retrieve_memory_facts(question, top_k=2)
+        retrieved = self._safe_query_collection(collection_name, question, top_k=self.top_k)
+        security_hits = self._safe_query_collection(security_collection, question, top_k=2)
+        try:
+            memory_hits = self.memory.retrieve_memory_facts(question, top_k=2)
+        except Exception:
+            memory_hits = []
 
         merged: list[dict[str, Any]] = []
         for item in retrieved:
@@ -205,6 +219,7 @@ class RagWorkflow:
         expected_output: str | None = None,
         task_type: str = "generic",
         remember: bool = False,
+        external_memory_context: str = "",
         persist_interaction: bool = True,
         publish_observability: bool = True,
     ) -> dict[str, Any]:
@@ -217,6 +232,7 @@ class RagWorkflow:
             "expected_output": expected_output or "",
             "task_type": task_type,
             "remember": remember,
+            "external_memory_context": external_memory_context,
             "persist_interaction": persist_interaction,
         }
         result = self.graph.invoke(state)

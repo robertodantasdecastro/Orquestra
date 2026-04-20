@@ -23,6 +23,7 @@ from .models import (
     ChatSession,
     JobRecord,
     MemoryRecord,
+    MemoryReviewCandidate,
     MemoryTopic,
     ModelArtifact,
     Project,
@@ -31,9 +32,11 @@ from .models import (
     WorkspaceAsset,
     WorkspaceScan,
 )
+from .runtime_state import collect_runtime_state, resolve_dmg_bundle_path
 from .services import (
     job_record_to_dict,
     memory_record_to_dict,
+    memory_review_candidate_to_dict,
     memory_topic_to_dict,
     model_artifact_to_dict,
     project_to_dict,
@@ -319,6 +322,7 @@ class OrquestraOperations:
         recent_scans = session.exec(select(WorkspaceScan).order_by(WorkspaceScan.updated_at.desc()).limit(8)).all()
         recent_records = session.exec(select(MemoryRecord).order_by(MemoryRecord.created_at.desc()).limit(10)).all()
         recent_topics = session.exec(select(MemoryTopic).order_by(MemoryTopic.updated_at.desc()).limit(8)).all()
+        recent_review_candidates = session.exec(select(MemoryReviewCandidate).order_by(MemoryReviewCandidate.created_at.desc()).limit(10)).all()
         recent_candidates = session.exec(select(TrainingCandidate).order_by(TrainingCandidate.created_at.desc()).limit(8)).all()
         message_count = len(session.exec(select(ChatMessage)).all())
         memory_records = session.exec(select(MemoryRecord)).all()
@@ -334,11 +338,20 @@ class OrquestraOperations:
         services = self._collect_services()
         ready_connectors = len([item for item in connectors if item["ready"]])
         ready_services = len([item for item in services if item["ready"]])
+        runtime_state = collect_runtime_state(self.settings)
+        runtime_manifest = runtime_state.get("manifest") or {}
+        source_root_value = runtime_manifest.get("source_root")
+        source_root = Path(str(source_root_value)) if source_root_value else self.root
+        if not source_root.exists():
+            source_root = self.root
+        installed_app_value = runtime_manifest.get("install_dir")
+        installed_app = Path(str(installed_app_value)) if installed_app_value else None
 
-        app_bundle = self.root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra AI.app"
-        dmg_bundle = self.root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "dmg" / "Orquestra AI_0.2.0_aarch64.dmg"
-        installer = self.root / "scripts" / "install_orquestra_macos.sh"
-        uninstaller = self.root / "scripts" / "uninstall_orquestra_macos.sh"
+        source_app_bundle = source_root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra AI.app"
+        app_bundle = installed_app if installed_app and installed_app.exists() else source_app_bundle
+        dmg_bundle = resolve_dmg_bundle_path(source_root)
+        installer = source_root / "scripts" / "install_orquestra_macos.sh"
+        uninstaller = source_root / "scripts" / "uninstall_orquestra_macos.sh"
         memory_dir = self.settings.artifacts_root / "memorygraph"
         workspace_dir = self.settings.artifacts_root / "workspace"
         db_path = self.settings.database_path
@@ -350,6 +363,7 @@ class OrquestraOperations:
                 {"id": "services_ready", "label": "Serviços prontos", "value": ready_services, "helper": "checklist local e integrações"},
                 {"id": "sessions", "label": "Sessões", "value": len(recent_sessions), "helper": "histórico recente ativo"},
                 {"id": "memories", "label": "Memórias", "value": len(memory_records), "helper": "registros duráveis e episódicos"},
+                {"id": "review_pending", "label": "Inbox memória", "value": len([item for item in recent_review_candidates if item.status == "pending"]), "helper": "candidatos aguardando revisão"},
                 {"id": "execution", "label": "Execuções", "value": len(training_jobs) + len(remote_jobs), "helper": "jobs e operações registradas"},
             ],
             "process_snapshot": {
@@ -380,15 +394,19 @@ class OrquestraOperations:
                     "workspace": str(workspace_dir),
                     "qdrant": str(self.settings.qdrant_path),
                 },
+                "runtime_state": runtime_state,
             },
             "memory_snapshot": {
                 "topics": len(memory_topics),
                 "records": len(memory_records),
                 "training_candidates": len(recent_candidates),
+                "review_candidates": len(recent_review_candidates),
+                "review_pending": len([item for item in recent_review_candidates if item.status == "pending"]),
                 "message_count": message_count,
                 "scope_breakdown": [{"scope": scope, "count": count} for scope, count in sorted(scope_counts.items())],
                 "recent_records": [memory_record_to_dict(item) for item in recent_records],
                 "recent_topics": [memory_topic_to_dict(item) for item in recent_topics],
+                "recent_review_candidates": [memory_review_candidate_to_dict(item) for item in recent_review_candidates],
                 "recent_candidates": [
                     {
                         "id": item.id,
@@ -419,6 +437,8 @@ class OrquestraOperations:
                 "artifacts": {
                     "app_bundle_path": str(app_bundle),
                     "app_bundle_exists": app_bundle.exists(),
+                    "installed_app_path": str(installed_app) if installed_app else "",
+                    "installed_app_exists": bool(installed_app and installed_app.exists()),
                     "dmg_path": str(dmg_bundle),
                     "dmg_exists": dmg_bundle.exists(),
                     "installer_path": str(installer),
@@ -435,10 +455,19 @@ class OrquestraOperations:
         web_url = "http://127.0.0.1:4177"
         database_path = self.settings.database_path
         dist_index = self.root / "orquestra_web" / "dist" / "index.html"
-        app_bundle = self.root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra AI.app"
-        dmg_bundle = self.root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "dmg" / "Orquestra AI_0.2.0_aarch64.dmg"
-        installer = self.root / "scripts" / "install_orquestra_macos.sh"
-        uninstaller = self.root / "scripts" / "uninstall_orquestra_macos.sh"
+        runtime_state = collect_runtime_state(self.settings)
+        runtime_manifest = runtime_state.get("manifest") or {}
+        source_root_value = runtime_manifest.get("source_root")
+        source_root = Path(str(source_root_value)) if source_root_value else self.root
+        if not source_root.exists():
+            source_root = self.root
+        installed_app_value = runtime_manifest.get("install_dir")
+        installed_app = Path(str(installed_app_value)) if installed_app_value else None
+        source_app_bundle = source_root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra AI.app"
+        app_bundle = installed_app if installed_app and installed_app.exists() else source_app_bundle
+        dmg_bundle = resolve_dmg_bundle_path(source_root)
+        installer = source_root / "scripts" / "install_orquestra_macos.sh"
+        uninstaller = source_root / "scripts" / "uninstall_orquestra_macos.sh"
 
         redis_host, redis_port = _url_host_port(self.settings.redis_url, 6379)
         lmstudio_base = os.getenv("LMSTUDIO_API_BASE", "http://localhost:1234/v1").rstrip("/")
@@ -527,12 +556,22 @@ class OrquestraOperations:
                 metadata={},
             ),
             self._service(
+                service_id="chroma_memory",
+                label="Chroma Memory RAG",
+                category="runtime",
+                ready=(self.root / "experiments").exists() or (self.settings.artifacts_root / "memorygraph").exists(),
+                status="ready" if (self.root / "experiments").exists() or (self.settings.artifacts_root / "memorygraph").exists() else "missing",
+                summary="Coleção vetorial local orquestra_memory_v1 para memórias aprovadas.",
+                detail=str(self.root / "experiments" / "rag"),
+                metadata={"collection": "orquestra_memory_v1", "backend": "chroma"},
+            ),
+            self._service(
                 service_id="qdrant",
-                label="Qdrant Vector Store",
+                label="Qdrant Vector Store Futuro",
                 category="runtime",
                 ready=self.settings.qdrant_path.exists(),
                 status="ready" if self.settings.qdrant_path.exists() else "missing",
-                summary="Persistência vetorial local do Orquestra.",
+                summary="Persistência vetorial local mantida como backend futuro/adaptável.",
                 detail=self.settings.qdrant_url or str(self.settings.qdrant_path),
                 metadata={"remote_url": self.settings.qdrant_url},
             ),

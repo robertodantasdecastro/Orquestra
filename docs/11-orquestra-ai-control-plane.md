@@ -2,7 +2,7 @@
 
 `Orquestra AI` e o control plane unificado da aplicacao `Orquestra`. A proposta e concentrar `RAG`, memoria, leitura multimodal, jobs remotos e operacao de modelos em um workspace proprio, separado do `Local_RAG`.
 
-> Atualizacao: o estado mais novo da implementacao agora esta consolidado em `docs/12-orquestra-v2-memorygraph-workspace.md`, com `MemoryGraph V2`, `Workspace Multimodal` e shell desktop macOS.
+> Atualizacao: o estado mais novo da implementacao agora esta consolidado em `docs/12-orquestra-v2-memorygraph-workspace.md`, com `MemoryGraph V2`, memoria associada ao RAG, `Workspace Multimodal` e shell desktop macOS.
 > Manual operacional completo: `docs/02-manual-operacional.md`.
 
 ## Objetivo
@@ -26,6 +26,8 @@ O control plane deve permanecer `local-first`: o Mac coordena a operacao, a API 
   - `scripts/start_orquestra_stack.sh`
   - `scripts/install_orquestra_macos.sh`
   - `scripts/uninstall_orquestra_macos.sh`
+  - `scripts/validate_orquestra_macos_package.sh`
+  - `script/build_and_run.sh`
 
 ## Providers do v1
 - `lmstudio`
@@ -44,17 +46,18 @@ No ciclo atual, o catalogo de conectores ja existe, mas a execucao remota real s
 
 ## Fluxo padrao
 1. escolher projeto, provider e modelo no `Workspace UI`
-2. conversar pelo `Assistant Workspace`
-3. promover fatos e contexto para memoria
-4. executar consultas no `RAG Studio`
-5. registrar artifacts e benchmarks no `Model Hub`
-6. preparar jobs remotos no `Train Ops`
+2. criar sessao com objetivo, preset e politica de memoria/RAG
+3. conversar pelo `Assistant Workspace`
+4. revisar `Memory Inbox` antes de promover memoria ou dataset
+5. executar consultas no `RAG Studio` com memoria aprovada quando houver
+6. registrar artifacts e benchmarks no `Model Hub`
+7. preparar jobs remotos no `Train Ops`
 
 ## Recursos principais
-- `Assistant Workspace`: conversa multi-provider com resumo, transcript e recall.
-- `Memory Studio`: memoria duravel, topicos, promocao e training candidates.
+- `Assistant Workspace`: conversa multi-provider com resumo, transcript, `Session Profile`, recall e painel `Memoria & RAG`.
+- `Memory Studio`: memoria duravel, topicos, promocao, `Memory Inbox` e training candidates.
 - `Workspace Browser`: anexar diretorios, inventariar, extrair, abrir e memorizar ativos.
-- `RAG Studio`: consulta local ao engine RAG integrado ao gateway.
+- `RAG Studio`: consulta local ao engine RAG integrado ao gateway e a colecao Chroma `orquestra_memory_v1`.
 - `Execution Center`: providers, conectores, jobs, registry, comparacao e acoes operacionais.
 - `Operations Dashboard`: status de servicos, processos, memoria, execucao e artefatos macOS.
 
@@ -80,17 +83,42 @@ cd /caminho/para/Orquestra
 ./scripts/start_orquestra_stack.sh
 ```
 
+### Desktop macOS
+```bash
+cd /caminho/para/Orquestra
+./script/build_and_run.sh --verify
+```
+
+Instalacao local:
+```bash
+./scripts/install_orquestra_macos.sh
+```
+
+O instalador copia o `.app` para `~/Applications`, espelha o runtime em `~/Library/Application Support/Orquestra/runtime` e registra o LaunchAgent `ai.orquestra.api` apontando para esse runtime local.
+Cada upgrade com sync de runtime cria backup do banco local e atualiza o manifesto de instalação em `experiments/orquestra/install/install_manifest.json`.
+
+Validacao de pacote:
+```bash
+./scripts/validate_orquestra_macos_package.sh
+```
+
 ## Endpoints principais
-- `GET /api/health`
+- `GET /api/health` retorna `app_version`, `schema_version`, `schema_target_version`, `migration_required` e `runtime`
 - `GET /api/providers`
 - `GET /api/models`
 - `GET /api/connectors`
 - `GET /api/projects`
 - `POST /api/projects`
 - `GET /api/chat/sessions`
+- `POST /api/chat/sessions`
+- `GET /api/chat/sessions/{id}/profile`
+- `PUT /api/chat/sessions/{id}/profile`
 - `GET /api/chat/sessions/{id}/messages`
 - `POST /api/chat/stream`
 - `GET /api/memory`
+- `GET /api/memory/candidates`
+- `POST /api/memory/candidates/{id}/approve`
+- `POST /api/memory/candidates/{id}/reject`
 - `POST /api/memory/upsert`
 - `POST /api/rag/query`
 - `GET /api/training/jobs`

@@ -37,6 +37,14 @@ class ProviderProfile(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
+class RuntimeMetadata(SQLModel, table=True):
+    __tablename__ = "runtime_metadata"
+
+    key: str = Field(primary_key=True)
+    value: str = ""
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
 class ChatSession(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     project_id: Optional[str] = Field(default=None, foreign_key="project.id")
@@ -100,6 +108,23 @@ class MemoryRecord(SQLModel, table=True):
     approved_for_training: bool = False
     metadata_json: str = "{}"
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class MemoryReviewCandidate(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    project_id: Optional[str] = Field(default=None, foreign_key="project.id", index=True)
+    session_id: Optional[str] = Field(default=None, foreign_key="chatsession.id", index=True)
+    scope: str = Field(default="session_memory", index=True)
+    title: str
+    content: str
+    rationale: str = ""
+    source_message_ids_json: str = "[]"
+    citations_json: str = "[]"
+    confidence: float = 0.5
+    status: str = Field(default="pending", index=True)
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    reviewed_at: Optional[datetime] = None
 
 
 class MemoryTopic(SQLModel, table=True):

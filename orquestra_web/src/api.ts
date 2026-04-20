@@ -1,6 +1,10 @@
 export type HealthState = {
   ok: boolean;
   app: string;
+  app_version: string;
+  schema_version: number;
+  schema_target_version: number;
+  migration_required: boolean;
   workspace_root: string;
   database_url: string;
   redis_url: string;
@@ -11,6 +15,51 @@ export type HealthState = {
   projects: number;
   memory_topics: number;
   workspace_scans: number;
+  runtime: RuntimeState;
+};
+
+export type RuntimeManifest = {
+  app_name?: string;
+  app_version?: string;
+  installed_at?: string;
+  source_root?: string;
+  install_dir?: string;
+  runtime_dir?: string;
+  support_dir?: string;
+  logs_dir?: string;
+  api_url?: string;
+  launch_agent_label?: string;
+  build_skipped?: boolean;
+  package_verified?: boolean;
+  runtime_synced?: boolean;
+  backup_created?: boolean;
+  backup_path?: string | null;
+  previous_app_version?: string | null;
+  previous_installed_at?: string | null;
+  [key: string]: unknown;
+};
+
+export type RuntimeBackup = {
+  name: string;
+  path: string;
+  size_bytes: number;
+  modified_at: string;
+};
+
+export type RuntimeState = {
+  app_version: string;
+  schema_version: number;
+  target_schema_version: number;
+  migration_required: boolean;
+  schema_updated_at?: string | null;
+  mode: string;
+  managed: boolean;
+  manifest_path: string;
+  backup_dir: string;
+  backup_count: number;
+  last_backup?: RuntimeBackup | null;
+  backups: RuntimeBackup[];
+  manifest?: RuntimeManifest | null;
 };
 
 export type ProviderProfile = {
@@ -38,6 +87,42 @@ export type Project = {
   created_at: string;
 };
 
+export type SessionProfile = {
+  objective: string;
+  preset: "research" | "osint" | "persona" | "assistant" | "dataset";
+  preset_label?: string;
+  memory_policy: {
+    enabled?: boolean;
+    auto_capture?: boolean;
+    review_required?: boolean;
+    use_in_prompt?: boolean;
+    generate_training_candidates?: boolean;
+    retention?: string;
+    scopes?: string[];
+    [key: string]: unknown;
+  };
+  rag_policy: {
+    enabled?: boolean;
+    collections?: string[];
+    memory_collection?: string;
+    include_memory?: boolean;
+    include_workspace?: boolean;
+    include_sources?: boolean;
+    top_k_memory?: number;
+    top_k_sources?: number;
+    top_k_workspace?: number;
+    max_context_chars?: number;
+    [key: string]: unknown;
+  };
+  persona_config: {
+    tone?: string;
+    style_notes?: string;
+    constraints?: string[];
+    source_refs?: string[];
+    [key: string]: unknown;
+  };
+};
+
 export type ChatSession = {
   id: string;
   project_id?: string | null;
@@ -46,6 +131,7 @@ export type ChatSession = {
   model_name: string;
   status?: string;
   metadata?: Record<string, unknown>;
+  profile?: SessionProfile;
   created_at: string;
   updated_at?: string;
   last_message_at?: string;
@@ -131,6 +217,23 @@ export type MemoryRecallItem = {
   source?: string;
   relevance?: number;
   metadata?: Record<string, unknown>;
+};
+
+export type MemoryReviewCandidate = {
+  id: string;
+  project_id?: string | null;
+  session_id?: string | null;
+  scope: string;
+  title: string;
+  content: string;
+  rationale: string;
+  source_message_ids: string[];
+  citations: Array<Record<string, unknown>>;
+  confidence: number;
+  status: "pending" | "approved" | "rejected";
+  metadata: Record<string, unknown>;
+  created_at: string;
+  reviewed_at?: string | null;
 };
 
 export type TrainingCandidate = {
@@ -278,6 +381,12 @@ export type RagResult = {
   evaluation?: Record<string, number>;
   usage?: Record<string, unknown>;
   latency_seconds?: number;
+  rag_memory?: {
+    items: MemoryRecallItem[];
+    collection_name: string;
+    status: string;
+    error?: string;
+  };
 };
 
 export type RegistryCompareResult = {
@@ -338,15 +447,19 @@ export type OpsDashboard = {
     recent_scans: WorkspaceScan[];
     recent_jobs: JobRecord[];
     runtime_paths: Record<string, string>;
+    runtime_state: RuntimeState;
   };
   memory_snapshot: {
     topics: number;
     records: number;
     training_candidates: number;
+    review_candidates: number;
+    review_pending: number;
     message_count: number;
     scope_breakdown: Array<{ scope: string; count: number }>;
     recent_records: MemoryRecord[];
     recent_topics: MemoryTopic[];
+    recent_review_candidates: MemoryReviewCandidate[];
     recent_candidates: Array<{
       id: string;
       source: string;
@@ -453,6 +566,11 @@ export async function createSession(payload: {
   title: string;
   provider_id?: string | null;
   model_name?: string | null;
+  objective?: string;
+  preset?: SessionProfile["preset"];
+  memory_policy?: Partial<SessionProfile["memory_policy"]>;
+  rag_policy?: Partial<SessionProfile["rag_policy"]>;
+  persona_config?: Partial<SessionProfile["persona_config"]>;
 }) {
   return request<ChatSession>("/api/chat/sessions", { method: "POST", body: JSON.stringify(payload) });
 }
@@ -464,6 +582,17 @@ export async function listSessions(projectId?: string) {
 
 export async function listMessages(sessionId: string) {
   return request<ChatMessage[]>(`/api/chat/sessions/${sessionId}/messages`);
+}
+
+export async function getSessionProfile(sessionId: string) {
+  return request<SessionProfile>(`/api/chat/sessions/${sessionId}/profile`);
+}
+
+export async function updateSessionProfile(sessionId: string, payload: SessionProfile) {
+  return request<SessionProfile>(`/api/chat/sessions/${sessionId}/profile`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
 }
 
 export async function resumeSession(sessionId: string) {
@@ -535,6 +664,29 @@ export async function promoteMemory(payload: {
   });
 }
 
+export async function listMemoryCandidates(projectId?: string, sessionId?: string, status = "pending") {
+  const params = new URLSearchParams();
+  if (projectId) params.set("project_id", projectId);
+  if (sessionId) params.set("session_id", sessionId);
+  if (status) params.set("status", status);
+  const query = params.toString();
+  return request<MemoryReviewCandidate[]>(`/api/memory/candidates${query ? `?${query}` : ""}`);
+}
+
+export async function approveMemoryCandidate(candidateId: string, payload?: { create_training_candidate?: boolean; metadata?: Record<string, unknown> }) {
+  return request<{ candidate: MemoryReviewCandidate; record: MemoryRecord; training_candidate?: TrainingCandidate | null; rag_index?: Record<string, unknown> }>(
+    `/api/memory/candidates/${candidateId}/approve`,
+    { method: "POST", body: JSON.stringify(payload ?? {}) }
+  );
+}
+
+export async function rejectMemoryCandidate(candidateId: string, payload?: { metadata?: Record<string, unknown> }) {
+  return request<MemoryReviewCandidate>(`/api/memory/candidates/${candidateId}/reject`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {})
+  });
+}
+
 export async function listTrainingCandidates(projectId?: string) {
   const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
   return request<TrainingCandidate[]>(`/api/memory/training-candidates${query}`);
@@ -568,6 +720,11 @@ export async function queryRag(payload: {
   task_type?: string;
   remember?: boolean;
   mock_llm?: boolean;
+  memory_enabled?: boolean;
+  memory_scopes?: string[];
+  include_workspace?: boolean;
+  include_sources?: boolean;
+  max_context_chars?: number;
 }) {
   return request<RagResult>("/api/rag/query", { method: "POST", body: JSON.stringify(payload) });
 }
@@ -722,12 +879,24 @@ export async function streamChat(
     max_tokens?: number;
     remember?: boolean;
     mock_response?: boolean;
+    memory_enabled?: boolean;
+    memory_scopes?: string[];
+    include_workspace?: boolean;
+    include_sources?: boolean;
+    max_context_chars?: number;
   },
   handlers: {
     onSession: (payload: { session_id: string; provider_id: string; model_name: string }) => void;
     onDelta: (text: string) => void;
     onSummary?: (payload: { current_state: string; updated_at: string }) => void;
-    onDone: (payload: { provider_id: string; model_name: string; usage: Record<string, unknown>; latency_seconds: number }) => void;
+    onDone: (payload: {
+      provider_id: string;
+      model_name: string;
+      usage: Record<string, unknown>;
+      latency_seconds: number;
+      memory_candidates_created?: number;
+      memory_recall_count?: number;
+    }) => void;
   }
 ) {
   const response = await fetch(apiPath("/api/chat/stream"), {

@@ -32,8 +32,19 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
         line = raw_line.strip()
         if not line:
             continue
-        records.append(json.loads(line))
+            records.append(json.loads(line))
     return records
+
+
+def _runtime_root_available(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / ".orquestra_write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
 
 
 def sanitize_metadata(payload: dict[str, Any]) -> dict[str, Any]:
@@ -72,9 +83,13 @@ class RagPaths:
     @classmethod
     def load(cls, workspace_root: Path) -> "RagPaths":
         load_project_env(workspace_root)
-        runtime_root = Path(
-            os.getenv("RAG_RUNTIME_ROOT", os.getenv("LOCAL_TRAIN_RUNTIME_ROOT", "/Volumes/SSDExterno/Orquestra_runtime"))
-        ).expanduser()
+        configured_runtime = os.getenv("RAG_RUNTIME_ROOT") or os.getenv("LOCAL_TRAIN_RUNTIME_ROOT")
+        local_runtime = workspace_root / "experiments" / "orquestra" / "rag_runtime"
+        runtime_root = Path(configured_runtime).expanduser() if configured_runtime else local_runtime
+        if not _runtime_root_available(runtime_root):
+            runtime_root = local_runtime
+            runtime_root.mkdir(parents=True, exist_ok=True)
+        os.environ["RAG_RUNTIME_ROOT"] = str(runtime_root)
         rag_runtime_root = runtime_root / "rag"
         return cls(
             workspace_root=workspace_root,

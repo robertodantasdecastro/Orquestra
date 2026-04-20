@@ -18,6 +18,8 @@ Principios do projeto:
 ## Recursos
 ### Chat multi-provider
 - Interface unica para conversar com modelos locais e remotos.
+- Nova sessao com setup curto de objetivo, preset operacional e politica de memoria/RAG.
+- Painel lateral `Memoria & RAG` dentro do chat para ajustar objetivo, preset, RAG, workspace e modo dataset sem abandonar a conversa.
 - Providers suportados no catalogo:
   - `LM Studio`
   - `OpenAI`
@@ -32,10 +34,12 @@ Principios do projeto:
 ### MemoryGraph
 - Transcript bruto em JSONL por sessao.
 - Resumo estruturado de sessao separado do transcript.
+- `Session Profile` salvo em `ChatSession.metadata_json`, com `objective`, `preset`, `memory_policy`, `rag_policy` e `persona_config`.
 - Memoria duravel por topicos e escopos.
+- `Memory Inbox` com candidatos revisaveis antes de qualquer promocao duravel.
 - Recall semantico com fallback lexical.
 - Promocao manual de fatos/contextos para memoria.
-- Training candidates para preparar datasets futuros.
+- Training candidates para preparar datasets futuros somente depois de aprovacao explicita.
 - Resume de sessao para retomar continuidade operacional.
 
 ### Workspace Multimodal
@@ -61,6 +65,9 @@ Principios do projeto:
 
 ### RAG local
 - Consulta ao engine RAG embutido.
+- Colecao Chroma `orquestra_memory_v1` para memoria aprovada associada ao RAG.
+- Recall de chat com orcamento pequeno: memoria aprovada, resumo operacional e fontes locais quando disponiveis.
+- Fallback lexical quando Chroma, embeddings ou colecoes estiverem indisponiveis.
 - Integracao com o gateway multi-provider.
 - Persistencia local de interacoes quando solicitado.
 - Modo mock para smoke tests.
@@ -73,6 +80,7 @@ Web e desktop exibem o mesmo painel com:
 - sessoes recentes;
 - scans de workspace;
 - memoria e training candidates;
+- candidatos pendentes de revisao no `Memory Inbox`;
 - providers, conectores, jobs e registry;
 - artefatos de build, app, DMG, instalador e desinstalador;
 - acoes operacionais disparaveis pela UI.
@@ -93,6 +101,9 @@ Web e desktop exibem o mesmo painel com:
 - Desinstalador em `scripts/uninstall_orquestra_macos.sh`.
 - Build do app Tauri e instalacao em `~/Applications/Orquestra AI.app`.
 - LaunchAgent de usuario para manter a API local disponivel.
+- Runtime espelhado em `~/Library/Application Support/Orquestra/runtime`, evitando depender do caminho do repositorio depois de instalado.
+- Backup automatico do banco local antes de upgrades com sync de runtime.
+- Manifesto de instalacao em `experiments/orquestra/install/install_manifest.json`.
 - Desinstalacao preserva dados por padrao e oferece `--purge-data` quando necessario.
 
 ## Estrutura
@@ -107,10 +118,13 @@ Web e desktop exibem o mesmo painel com:
 ## Estado atual
 - Backend, frontend web e shell desktop estao integros no fluxo local.
 - `./scripts/validate_orquestra.sh` e a verificacao automatizada principal.
-- O build desktop do Tauri fecha localmente no macOS.
+- O build desktop do Tauri fecha localmente no macOS e gera `.app` + `.dmg`.
+- `./scripts/validate_orquestra_macos_package.sh` valida bundle, DMG, `Info.plist`, scripts e assinatura local/ad-hoc.
 - Chat, memoria, RAG e Workspace Multimodal passam em smoke local.
+- Sessao com objetivo/preset, memoria revisavel, aprovacao de candidato e recall RAG associado estao integrados na V1 local.
 - Providers reais sao opcionais; a validacao usa modo mock/local-safe.
 - Dashboard operacional, instalador, desinstalador e manual estao documentados.
+- `/api/health` e o dashboard expõem `app_version`, `schema_version`, `schema_target_version`, estado de migração, manifesto e backups recentes.
 - EC2 e demais conectores remotos permanecem para fase posterior.
 
 ## Requisitos
@@ -148,6 +162,11 @@ Rodar desktop:
 ./scripts/start_orquestra_desktop.sh
 ```
 
+Buildar, abrir e verificar o app desktop:
+```bash
+./script/build_and_run.sh --verify
+```
+
 ## Instalar no macOS
 ```bash
 cd /caminho/para/Orquestra
@@ -158,10 +177,21 @@ Opcoes:
 ```bash
 ./scripts/install_orquestra_macos.sh --skip-build
 ./scripts/install_orquestra_macos.sh --no-launch-agent
+./scripts/install_orquestra_macos.sh --no-runtime-sync
+./scripts/install_orquestra_macos.sh --open
+./scripts/install_orquestra_macos.sh --no-wait-api
+./scripts/install_orquestra_macos.sh --skip-package-verify
 ./scripts/install_orquestra_macos.sh --install-dir "$HOME/Applications/Orquestra AI.app"
 ```
 
-O instalador prepara o ambiente, gera o app desktop, instala o bundle em `~/Applications` e registra o LaunchAgent `ai.orquestra.api`.
+O instalador prepara o ambiente, gera o app desktop, valida o pacote local, instala o bundle em `~/Applications`, sincroniza o runtime para `~/Library/Application Support/Orquestra/runtime` e registra o LaunchAgent `ai.orquestra.api`.
+Para Macs mais lentos no primeiro boot, ajuste `ORQUESTRA_INSTALL_API_WAIT_SECONDS=120` antes de instalar.
+Cada upgrade com sync de runtime cria backup do banco em `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/backups`.
+Use `ORQUESTRA_INSTALL_BACKUP_LIMIT=8` para alterar a retenção padrão de 5 backups.
+
+Artefatos gerados:
+- `orquestra_web/src-tauri/target/release/bundle/macos/Orquestra AI.app`
+- `orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI_0.2.0_aarch64.dmg`
 
 ## Desinstalar no macOS
 ```bash
@@ -172,6 +202,7 @@ cd /caminho/para/Orquestra
 Remover tambem dados e logs:
 ```bash
 ./scripts/uninstall_orquestra_macos.sh --purge-data
+./scripts/uninstall_orquestra_macos.sh --no-launch-agent
 ```
 
 ## Enderecos locais
@@ -180,6 +211,9 @@ Remover tambem dados e logs:
 - App: `~/Applications/Orquestra AI.app`
 - Logs instalados: `~/Library/Logs/Orquestra`
 - Dados de suporte: `~/Library/Application Support/Orquestra`
+- Runtime instalado: `~/Library/Application Support/Orquestra/runtime`
+- Manifesto de instalacao: `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/install_manifest.json`
+- Backups de upgrade: `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/backups`
 
 ## Documentacao
 - [Manual operacional completo](docs/02-manual-operacional.md)

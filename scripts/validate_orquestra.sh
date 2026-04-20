@@ -31,6 +31,28 @@ echo "[orquestra] tauri cargo check"
   cargo check
 )
 
+PACKAGE_VERSION="$(/usr/bin/python3 - <<'PY' "${ROOT_DIR}/orquestra_web/package.json"
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    payload = {}
+print(str(payload.get("version", "0.2.0")))
+PY
+)"
+APP_BUNDLE="orquestra_web/src-tauri/target/release/bundle/macos/Orquestra AI.app"
+DMG_BUNDLE="orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI_${PACKAGE_VERSION}_aarch64.dmg"
+if [[ -d "${APP_BUNDLE}" && -f "${DMG_BUNDLE}" ]]; then
+  echo "[orquestra] macOS package validation"
+  ./scripts/validate_orquestra_macos_package.sh
+else
+  echo "[orquestra] macOS package validation skipped (rode npm run desktop:build para gerar .app/.dmg)"
+fi
+
 echo "[orquestra] api smoke"
 PYTHONPATH=. python - <<'PY'
 from pathlib import Path
@@ -44,15 +66,48 @@ app = create_app(load_settings(root))
 with TestClient(app) as client:
     health = client.get("/api/health")
     assert health.status_code == 200, health.text
+    health_payload = health.json()
+    assert health_payload["app_version"], "health sem versão de app"
+    assert "runtime" in health_payload, "health sem bloco de runtime"
+    assert health_payload["schema_version"] == health_payload["schema_target_version"], "schema fora da versão alvo"
+    assert health_payload["migration_required"] is False, "migration_required deveria estar falso após bootstrap"
 
-    session_obj = client.post("/api/chat/sessions", json={"title": "validation-smoke"}).json()
+    session_obj = client.post(
+        "/api/chat/sessions",
+        json={
+            "title": "validation-smoke",
+            "objective": "Validar memória associada ao RAG em modo local-first.",
+            "preset": "research",
+            "memory_policy": {"enabled": True, "auto_capture": True, "review_required": True},
+            "rag_policy": {"enabled": True, "include_memory": True, "include_workspace": True},
+        },
+    ).json()
     session_id = session_obj["id"]
+
+    profile = client.get(f"/api/chat/sessions/{session_id}/profile")
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["objective"], "perfil de sessão sem objetivo"
 
     chat = client.post(
         "/api/chat/stream",
-        json={"session_id": session_id, "message": "oi", "mock_response": True},
+        json={"session_id": session_id, "message": "oi", "mock_response": True, "memory_enabled": True},
     )
     assert chat.status_code == 200, chat.text
+
+    memory_candidates = client.get("/api/memory/candidates", params={"session_id": session_id, "status": "pending"})
+    assert memory_candidates.status_code == 200, memory_candidates.text
+    candidate_rows = memory_candidates.json()
+    assert candidate_rows, "chat mock não gerou candidato revisável"
+
+    approve = client.post(f"/api/memory/candidates/{candidate_rows[0]['id']}/approve", json={"create_training_candidate": False})
+    assert approve.status_code == 200, approve.text
+    assert approve.json()["record"]["scope"], "aprovação não criou MemoryRecord"
+
+    rag = client.post(
+        "/api/rag/query",
+        json={"session_id": session_id, "question": "qual memoria foi aprovada?", "mock_llm": True, "memory_enabled": True},
+    )
+    assert rag.status_code == 200, rag.text
 
     summary = client.get(f"/api/chat/sessions/{session_id}/summary")
     assert summary.status_code == 200, summary.text

@@ -22,13 +22,14 @@ Objetivos principais:
 O Assistant Workspace e a superficie de conversa.
 
 Ele permite:
-- criar sessoes por projeto;
+- criar sessoes por projeto com objetivo obrigatorio e preset operacional;
 - escolher provider e modelo;
 - conversar em modo streaming;
 - usar resumo da sessao como contexto operacional;
-- recuperar memorias relevantes antes de responder;
-- salvar interacoes relevantes como memoria episodica;
-- gerar training candidates quando `remember` esta ativo;
+- recuperar memoria aprovada de `orquestra_memory_v1` antes de responder;
+- sugerir candidatos revisaveis no `Memory Inbox`;
+- promover memoria duravel somente apos aprovacao explicita;
+- gerar training candidates somente quando o modo dataset estiver habilitado e o candidato for aprovado;
 - consultar transcript e resumo separadamente.
 
 Camadas usadas:
@@ -36,6 +37,7 @@ Camadas usadas:
 - `ChatMessage`: mensagens persistidas no banco;
 - `SessionTranscript`: arquivo JSONL bruto;
 - `SessionSummary`: resumo operacional estruturado;
+- `MemoryReviewCandidate`: fila de revisao;
 - `MemoryRecord`: memoria duravel ou episodica.
 
 ### 2. Memory Studio
@@ -46,6 +48,7 @@ Recursos:
 - topicos de memoria duravel;
 - recall por consulta;
 - promocao manual de contexto para topico;
+- revisao de candidatos do `Memory Inbox`;
 - visualizacao de training candidates;
 - separacao entre memoria de sessao e memoria duravel.
 
@@ -55,6 +58,9 @@ Escopos recomendados:
 - `episodic_memory`: fatos de uma interacao especifica;
 - `semantic_memory`: conhecimento extraido e reaproveitavel;
 - `workspace_memory`: ativos relevantes de diretorios anexados.
+- `persona_memory`: estilo, tom e restricoes aprovadas;
+- `source_fact`: fatos com fonte/citacao;
+- `training_signal`: material candidato a dataset, sempre revisado.
 
 ### 3. Workspace Browser
 O Workspace Browser anexa diretorios e permite leitura multimodal.
@@ -93,6 +99,7 @@ Ele permite:
 - usar provider/modelo selecionado;
 - rodar em modo mock;
 - persistir interacao quando necessario;
+- recuperar memoria aprovada pela colecao Chroma `orquestra_memory_v1`;
 - promover respostas uteis para memoria.
 
 Uso recomendado:
@@ -136,7 +143,8 @@ Ele monitora:
 - SQLite runtime;
 - MemoryGraph Store;
 - Workspace Runtime;
-- Qdrant local;
+- Chroma Memory RAG;
+- Qdrant local como backend futuro/adaptavel;
 - Redis opcional;
 - LM Studio;
 - Ollama;
@@ -200,6 +208,7 @@ Subpastas importantes:
 - `memorygraph/topics`;
 - `memorygraph/manifests`;
 - `memorygraph/training_candidates`;
+- `rag_runtime`;
 - `workspace/inventories`;
 - `workspace/derivatives`;
 - `workspace/insights`;
@@ -215,6 +224,8 @@ O shell desktop e fino:
 - ele renderiza a UI;
 - a API segue local em `127.0.0.1:8808`;
 - web e desktop consomem os mesmos endpoints.
+- o instalador cria um LaunchAgent para manter a API local disponivel;
+- o build gera `.app` e `.dmg` em `orquestra_web/src-tauri/target/release/bundle/`.
 
 ## Instalacao no macOS
 ### Pre-requisitos
@@ -245,8 +256,12 @@ O instalador:
 - valida que esta em macOS;
 - prepara dependencias;
 - builda o app desktop;
+- valida o pacote `.app` e o DMG;
 - instala `Orquestra AI.app` em `~/Applications`;
 - cria `~/Library/Application Support/Orquestra`;
+- sincroniza o runtime em `~/Library/Application Support/Orquestra/runtime`;
+- gera backup do banco local antes do upgrade quando existir estado anterior;
+- grava manifesto do runtime em `experiments/orquestra/install/install_manifest.json`;
 - cria `~/Library/Logs/Orquestra`;
 - registra LaunchAgent `ai.orquestra.api`;
 - aguarda a API responder em `/api/health`.
@@ -255,11 +270,35 @@ Opcoes:
 ```bash
 ./scripts/install_orquestra_macos.sh --skip-build
 ./scripts/install_orquestra_macos.sh --no-launch-agent
+./scripts/install_orquestra_macos.sh --no-runtime-sync
+./scripts/install_orquestra_macos.sh --open
+./scripts/install_orquestra_macos.sh --no-wait-api
+./scripts/install_orquestra_macos.sh --skip-package-verify
 ./scripts/install_orquestra_macos.sh --install-dir "$HOME/Applications/Orquestra AI.app"
 ```
 
 Use `--skip-build` quando o bundle Tauri ja existir.
 Use `--no-launch-agent` quando quiser iniciar a API manualmente.
+Use `--no-runtime-sync` apenas em desenvolvimento, quando quiser que o LaunchAgent use o runtime ja existente.
+Use `--open` para abrir o app instalado ao final.
+Use `--skip-package-verify` apenas se estiver depurando uma build parcial.
+Use `ORQUESTRA_INSTALL_API_WAIT_SECONDS=120` se o primeiro boot da API demorar por carregamento de dependencias locais.
+Use `ORQUESTRA_INSTALL_BACKUP_LIMIT=8` para manter mais backups do banco durante upgrades.
+
+### Validar pacote macOS
+```bash
+./scripts/validate_orquestra_macos_package.sh
+```
+
+Essa verificacao confirma:
+- bundle `.app`;
+- DMG;
+- `Info.plist`;
+- executavel `orquestra-desktop`;
+- sintaxe do instalador/desinstalador;
+- estado da assinatura local.
+
+A assinatura atual e `ad-hoc`, suficiente para uso local. Para distribuicao publica, ainda sera necessario configurar Developer ID, hardened runtime e notarizacao.
 
 ### Desinstalador
 ```bash
@@ -283,6 +322,7 @@ Opcoes:
 ```bash
 ./scripts/uninstall_orquestra_macos.sh --install-dir "$HOME/Applications/Orquestra AI.app"
 ./scripts/uninstall_orquestra_macos.sh --purge-data
+./scripts/uninstall_orquestra_macos.sh --no-launch-agent
 ```
 
 ## Operacao Diaria
@@ -308,6 +348,13 @@ Acesse:
 ```
 
 Esse modo e ideal para uso diario no Mac sem abrir manualmente o browser.
+
+### Modo 2B: Build, abrir e verificar desktop
+```bash
+./script/build_and_run.sh --verify
+```
+
+Esse modo builda o Tauri, valida o pacote, sobe a API se necessario, abre o `.app` e confirma processo + `/api/health`.
 
 ### Modo 3: Stack em background
 ```bash
@@ -352,9 +399,25 @@ ORQUESTRA_LITELLM_PROXY_URL=http://127.0.0.1:4000
 ### Criar uma sessao de chat
 1. Abra `Assistant Workspace`.
 2. Escolha projeto, provider e modelo.
-3. Digite o prompt.
-4. Use modo mock se quiser validar sem provider real.
-5. Consulte `Resumo` e `Transcript` para continuidade.
+3. Clique em `Nova sessao`.
+4. Defina o objetivo obrigatorio da sessao.
+5. Escolha o preset: `Pesquisa`, `OSINT`, `Persona`, `Assistente` ou `Dataset`.
+6. Ajuste as opcoes rapidas: usar RAG, usar Workspace, capturar memorias e modo dataset.
+7. Clique em `Iniciar chat`.
+8. Use o painel lateral `Memoria & RAG` para ajustar objetivo, preset, memoria, RAG e workspace durante a conversa.
+9. Digite o prompt e use modo mock se quiser validar sem provider real.
+10. Consulte `Resumo`, `Transcript` e `Memory Inbox` para continuidade.
+
+O Orquestra gera candidatos revisaveis apos as respostas. Esses candidatos nao viram memoria duravel nem dataset automaticamente.
+
+### Revisar Memory Inbox
+1. Abra `Assistant Workspace`.
+2. Selecione uma sessao.
+3. Abra o painel `Memoria & RAG`.
+4. Leia cada candidato pendente com escopo, confianca e conteudo resumido.
+5. Use `Aprovar` para criar `MemoryRecord` e indexar em `orquestra_memory_v1`.
+6. Use `Rejeitar` para descartar a sugestao.
+7. Ative `dataset apos aprovacao` somente quando quiser gerar `TrainingCandidate` a partir da aprovacao.
 
 ### Promover memoria
 1. Abra `Memory Studio`.
@@ -376,8 +439,9 @@ ORQUESTRA_LITELLM_PROXY_URL=http://127.0.0.1:4000
 1. Abra `RAG Studio`.
 2. Informe a pergunta.
 3. Escolha modo mock ou provider real.
-4. Analise resposta, citacoes e uso.
-5. Promova o que for importante para memoria.
+4. Se houver sessao selecionada, a consulta tambem pode recuperar memoria aprovada de `orquestra_memory_v1`.
+5. Analise resposta, citacoes, uso e memoria recuperada.
+6. Promova o que for importante para memoria ou aprove candidatos no `Memory Inbox`.
 
 ### Preparar um job
 1. Abra `Execution Center`.
@@ -407,7 +471,8 @@ Essa validacao cobre:
 - build web;
 - `cargo check` do Tauri;
 - smoke da API;
-- chat, resumo, resume e transcript;
+- chat com perfil de sessao, resumo, resume e transcript;
+- Memory Inbox, aprovacao e recall RAG associado;
 - scan de workspace;
 - preview e memoria.
 
@@ -460,6 +525,11 @@ npm install
 npm run desktop:build
 ```
 
+Valide o pacote:
+```bash
+./scripts/validate_orquestra_macos_package.sh
+```
+
 ## Politica de Dados
 - `.env` real nao deve entrar no Git.
 - Chaves SSH e API keys ficam fora do repositorio.
@@ -467,6 +537,9 @@ npm run desktop:build
 - Derivados ficam em `experiments/orquestra/workspace`.
 - Logs instalados ficam em `~/Library/Logs/Orquestra`.
 - Dados de suporte instalados ficam em `~/Library/Application Support/Orquestra`.
+- Runtime da API instalada fica em `~/Library/Application Support/Orquestra/runtime`.
+- Manifesto do runtime fica em `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/install_manifest.json`.
+- Backups de upgrade ficam em `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/backups`.
 
 ## Logo e Identidade
 A marca do Orquestra representa um nucleo local-first com orbitas de servicos conectados.
@@ -486,10 +559,12 @@ Pronto hoje:
 - backend FastAPI;
 - frontend web;
 - app Tauri;
+- `.app` e DMG gerados localmente;
 - dashboard operacional;
 - MemoryGraph V2;
 - Workspace Multimodal;
 - RAG local integrado;
+- memoria associada ao RAG com `Memory Inbox`;
 - instalador/desinstalador macOS;
 - registry e jobs como catalogo operacional.
 

@@ -5,6 +5,7 @@ import {
   HealthState,
   JobRecord,
   MemoryRecord,
+  MemoryReviewCandidate,
   MemoryTopic,
   ModelArtifact,
   OpsDashboard,
@@ -13,12 +14,14 @@ import {
   RagResult,
   RegistryCompareResult,
   SessionSummary,
+  SessionProfile,
   SessionTranscript,
   TrainingCandidate,
   WorkspaceAsset,
   WorkspacePreview,
   WorkspaceQueryResult,
   WorkspaceScan,
+  approveMemoryCandidate,
   attachDirectory,
   compareRegistryModels,
   createDeployment,
@@ -32,10 +35,12 @@ import {
   getOpsDashboard,
   getOpsRun,
   getRemoteJobLogs,
+  getSessionProfile,
   getSummary,
   getTranscript,
   getWorkspaceScan,
   listMemory,
+  listMemoryCandidates,
   listMemoryTopics,
   listMessages,
   listModels,
@@ -51,8 +56,10 @@ import {
   queryWorkspace,
   rawPreviewUrl,
   recallMemory,
+  rejectMemoryCandidate,
   resumeSession,
-  streamChat
+  streamChat,
+  updateSessionProfile
 } from "./api";
 import orquestraLogo from "./assets/orquestra-logo.svg";
 
@@ -76,6 +83,54 @@ const serviceCategoryLabels: Record<string, string> = {
   provider: "Providers",
   distribution: "Distribuição"
 };
+
+const presetOptions: Array<{ value: SessionProfile["preset"]; label: string; helper: string }> = [
+  { value: "research", label: "Pesquisa", helper: "continuidade, fontes locais e citações" },
+  { value: "osint", label: "OSINT", helper: "evidência, hipótese, confiança e data" },
+  { value: "persona", label: "Persona", helper: "tom, vocabulário e restrições aprovadas" },
+  { value: "assistant", label: "Assistente", helper: "preferências, comandos e modo de trabalho" },
+  { value: "dataset", label: "Dataset", helper: "sinais revisáveis para fine-tuning futuro" }
+];
+
+function defaultSessionProfile(preset: SessionProfile["preset"] = "research"): SessionProfile {
+  return {
+    objective: "",
+    preset,
+    preset_label: presetOptions.find((item) => item.value === preset)?.label,
+    memory_policy: {
+      enabled: true,
+      auto_capture: true,
+      review_required: true,
+      use_in_prompt: true,
+      generate_training_candidates: preset === "dataset",
+      retention: "durable_after_approval",
+      scopes:
+        preset === "persona"
+          ? ["persona_memory", "session_memory", "semantic_memory"]
+          : preset === "dataset"
+            ? ["training_signal", "session_memory", "semantic_memory"]
+            : ["session_memory", "episodic_memory", "semantic_memory", "workspace_memory", "source_fact"]
+    },
+    rag_policy: {
+      enabled: true,
+      collections: ["knowledge_base", "security_base"],
+      memory_collection: "orquestra_memory_v1",
+      include_memory: true,
+      include_workspace: true,
+      include_sources: true,
+      top_k_memory: 6,
+      top_k_sources: 4,
+      top_k_workspace: 4,
+      max_context_chars: 9000
+    },
+    persona_config: {
+      tone: "",
+      style_notes: presetOptions.find((item) => item.value === preset)?.helper ?? "",
+      constraints: [],
+      source_refs: []
+    }
+  };
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "agora";
@@ -128,6 +183,12 @@ export default function App() {
   const [chatPrompt, setChatPrompt] = useState("");
   const [chatStreaming, setChatStreaming] = useState(false);
   const [chatMockMode, setChatMockMode] = useState(false);
+  const [showSessionSetup, setShowSessionSetup] = useState(false);
+  const [sessionSetup, setSessionSetup] = useState<SessionProfile>(() => defaultSessionProfile("research"));
+  const [sessionProfile, setSessionProfile] = useState<SessionProfile | null>(null);
+  const [memoryCandidates, setMemoryCandidates] = useState<MemoryReviewCandidate[]>([]);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [lastMemoryTelemetry, setLastMemoryTelemetry] = useState({ recallCount: 0, candidatesCreated: 0 });
 
   const [workspaceRootPath, setWorkspaceRootPath] = useState("");
   const [workspacePromptHint, setWorkspacePromptHint] = useState("Analisar pasta de forma inventory-first e lazy.");
@@ -218,23 +279,26 @@ export default function App() {
       setMemoryRecords([]);
       setMemoryTopics([]);
       setTrainingCandidates([]);
+      setMemoryCandidates([]);
       setWorkspaceScans([]);
       setSelectedSessionId("");
       setSelectedScanId("");
       return;
     }
 
-    const [sessionPayload, memoryPayload, topicsPayload, candidatesPayload, scanPayload] = await Promise.all([
+    const [sessionPayload, memoryPayload, topicsPayload, trainingPayload, reviewPayload, scanPayload] = await Promise.all([
       listSessions(projectId),
       listMemory(projectId),
       listMemoryTopics(projectId),
       listTrainingCandidates(projectId),
+      listMemoryCandidates(projectId, undefined, "pending"),
       listWorkspaceScans(projectId)
     ]);
     setSessions(sessionPayload);
     setMemoryRecords(memoryPayload);
     setMemoryTopics(topicsPayload);
-    setTrainingCandidates(candidatesPayload);
+    setTrainingCandidates(trainingPayload);
+    setMemoryCandidates(reviewPayload);
     setWorkspaceScans(scanPayload);
 
     const nextSessionId = sessionPayload.find((item) => item.id === selectedSessionId)?.id ?? sessionPayload[0]?.id ?? "";
@@ -256,16 +320,22 @@ export default function App() {
       setSessionSummary(null);
       setSessionTranscript(null);
       setResumePayload(null);
+      setSessionProfile(null);
+      setMemoryCandidates([]);
       return;
     }
-    const [messagesPayload, summaryPayload, transcriptPayload] = await Promise.all([
+    const [messagesPayload, summaryPayload, transcriptPayload, profilePayload, candidatePayload] = await Promise.all([
       listMessages(sessionId),
       getSummary(sessionId),
-      getTranscript(sessionId)
+      getTranscript(sessionId),
+      getSessionProfile(sessionId),
+      listMemoryCandidates(undefined, sessionId, "pending")
     ]);
     setMessages(messagesPayload);
     setSessionSummary(summaryPayload);
     setSessionTranscript(transcriptPayload);
+    setSessionProfile(profilePayload);
+    setMemoryCandidates(candidatePayload);
   }
 
   async function refreshWorkspace(scanId: string) {
@@ -351,12 +421,90 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [view, selectedProjectId]);
 
+  function openSessionSetup() {
+    setSessionSetup(defaultSessionProfile("research"));
+    setShowSessionSetup(true);
+    setView("assistant");
+  }
+
+  function updateDraftProfile(updater: (current: SessionProfile) => SessionProfile) {
+    setSessionProfile((current) => (current ? updater(current) : current));
+  }
+
+  async function handleCreateSessionWithProfile() {
+    if (!sessionSetup.objective.trim()) {
+      setStatusLine("Defina um objetivo antes de iniciar a sessão.");
+      return;
+    }
+    try {
+      const session = await createSession({
+        project_id: selectedProjectId || undefined,
+        title: sessionSetup.objective.trim().slice(0, 72),
+        provider_id: selectedProviderId,
+        model_name: selectedModel,
+        objective: sessionSetup.objective,
+        preset: sessionSetup.preset,
+        memory_policy: sessionSetup.memory_policy,
+        rag_policy: sessionSetup.rag_policy,
+        persona_config: sessionSetup.persona_config
+      });
+      setSelectedSessionId(session.id);
+      setSessionProfile(session.profile ?? sessionSetup);
+      setShowSessionSetup(false);
+      setStatusLine(`Sessão criada com preset ${session.profile?.preset_label || sessionSetup.preset}.`);
+      await refreshProjectScoped(selectedProjectId);
+      await refreshSession(session.id);
+    } catch (error) {
+      setStatusLine(`Falha ao criar sessão com perfil: ${String(error)}`);
+    }
+  }
+
+  async function handleSaveSessionProfile() {
+    if (!selectedSessionId || !sessionProfile) return;
+    try {
+      setProfileSaving(true);
+      const payload = await updateSessionProfile(selectedSessionId, sessionProfile);
+      setSessionProfile(payload);
+      setStatusLine("Perfil de sessão salvo.");
+      await refreshProjectScoped(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao salvar perfil da sessão: ${String(error)}`);
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  async function handleReviewMemoryCandidate(candidate: MemoryReviewCandidate, action: "approve" | "reject") {
+    try {
+      if (action === "approve") {
+        await approveMemoryCandidate(candidate.id, {
+          create_training_candidate: Boolean(sessionProfile?.memory_policy.generate_training_candidates),
+          metadata: { reviewed_from: "assistant_memory_panel" }
+        });
+        setStatusLine("Candidato aprovado, memória criada e indexação RAG solicitada.");
+      } else {
+        await rejectMemoryCandidate(candidate.id, { metadata: { reviewed_from: "assistant_memory_panel" } });
+        setStatusLine("Candidato rejeitado.");
+      }
+      if (selectedSessionId) {
+        await refreshSession(selectedSessionId);
+      }
+      await refreshProjectScoped(selectedProjectId);
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao revisar candidato: ${String(error)}`);
+    }
+  }
+
   async function handleSendChat() {
     if (!chatPrompt.trim() || chatStreaming) return;
     const prompt = chatPrompt.trim();
     setChatPrompt("");
     setChatStreaming(true);
     setStatusLine("Streaming do Assistant Workspace em andamento.");
+    let activeSessionId = selectedSessionId;
+    const memoryPolicy = sessionProfile?.memory_policy ?? defaultSessionProfile("assistant").memory_policy;
+    const ragPolicy = sessionProfile?.rag_policy ?? defaultSessionProfile("assistant").rag_policy;
 
     const optimisticUser: ChatMessage = {
       id: `local-user-${Date.now()}`,
@@ -385,10 +533,18 @@ export default function App() {
           model_name: selectedModel || undefined,
           message: prompt,
           remember: true,
-          mock_response: chatMockMode
+          mock_response: chatMockMode,
+          memory_enabled: Boolean(memoryPolicy.enabled),
+          memory_scopes: memoryPolicy.scopes ?? [],
+          include_workspace: Boolean(ragPolicy.include_workspace),
+          include_sources: Boolean(ragPolicy.include_sources),
+          max_context_chars: Number(ragPolicy.max_context_chars ?? 9000)
         },
         {
-          onSession: ({ session_id }) => setSelectedSessionId(session_id),
+          onSession: ({ session_id }) => {
+            activeSessionId = session_id;
+            setSelectedSessionId(session_id);
+          },
           onDelta: (text) => {
             setMessages((current) =>
               current.map((message, index) =>
@@ -417,7 +573,7 @@ export default function App() {
                   }
             );
           },
-          onDone: ({ provider_id, model_name, usage, latency_seconds }) => {
+          onDone: ({ provider_id, model_name, usage, latency_seconds, memory_candidates_created, memory_recall_count }) => {
             setMessages((current) =>
               current.map((message, index) =>
                 index === current.length - 1 && message.role === "assistant"
@@ -425,14 +581,17 @@ export default function App() {
                   : message
               )
             );
-            setStatusLine(`Resposta concluída via ${provider_id}/${model_name} em ${latency_seconds.toFixed(2)}s.`);
+            setLastMemoryTelemetry({ recallCount: memory_recall_count ?? 0, candidatesCreated: memory_candidates_created ?? 0 });
+            setStatusLine(
+              `Resposta concluída via ${provider_id}/${model_name} em ${latency_seconds.toFixed(2)}s; memória recall ${memory_recall_count ?? 0}, inbox +${memory_candidates_created ?? 0}.`
+            );
           }
         }
       );
       await refreshProjectScoped(selectedProjectId);
       await refreshGlobal(selectedProjectId);
-      if (selectedSessionId) {
-        await refreshSession(selectedSessionId);
+      if (activeSessionId) {
+        await refreshSession(activeSessionId);
       }
     } catch (error) {
       setStatusLine(`Falha no streaming: ${String(error)}`);
@@ -588,7 +747,12 @@ export default function App() {
         model_name: selectedModel || undefined,
         task_type: "orquestra_execution",
         remember: true,
-        mock_llm: chatMockMode
+        mock_llm: chatMockMode,
+        memory_enabled: Boolean(sessionProfile?.memory_policy.enabled ?? true),
+        memory_scopes: sessionProfile?.memory_policy.scopes ?? [],
+        include_workspace: Boolean(sessionProfile?.rag_policy.include_workspace ?? true),
+        include_sources: Boolean(sessionProfile?.rag_policy.include_sources ?? true),
+        max_context_chars: Number(sessionProfile?.rag_policy.max_context_chars ?? 9000)
       });
       setRagResult(result);
       setStatusLine("Consulta do RAG concluída.");
@@ -910,6 +1074,11 @@ export default function App() {
                         <p>{health?.workspace_root || "-"}</p>
                       </article>
                       <article className="provider-card">
+                        <strong>Versão</strong>
+                        <span>{health?.app_version ? `v${health.app_version}` : "-"}</span>
+                        <p>{health?.runtime.mode || "workspace"}</p>
+                      </article>
+                      <article className="provider-card">
                         <strong>Web</strong>
                         <span>{opsDashboard?.process_snapshot.listeners.web ? "online" : "idle"}</span>
                         <p>http://127.0.0.1:4177</p>
@@ -922,7 +1091,9 @@ export default function App() {
                       <article className="provider-card">
                         <strong>Runtime</strong>
                         <span>{Object.keys(opsDashboard?.process_snapshot.runtime_paths ?? {}).length} paths</span>
-                        <p>Banco, workspace, memorygraph e qdrant.</p>
+                        <p>
+                          Schema v{health?.schema_version ?? "-"}/{health?.schema_target_version ?? "-"} · {opsDashboard?.process_snapshot.runtime_state?.backup_count ?? 0} backups
+                        </p>
                       </article>
                     </div>
                   </div>
@@ -961,16 +1132,7 @@ export default function App() {
                       <button
                         type="button"
                         className="ghost-button"
-                        onClick={async () => {
-                          const session = await createSession({
-                            project_id: selectedProjectId || undefined,
-                            title: "Nova sessão Orquestra",
-                            provider_id: selectedProviderId,
-                            model_name: selectedModel
-                          });
-                          setSelectedSessionId(session.id);
-                          await refreshProjectScoped(selectedProjectId);
-                        }}
+                        onClick={openSessionSetup}
                       >
                         Nova sessão
                       </button>
@@ -1042,6 +1204,11 @@ export default function App() {
                       <strong>Candidates</strong>
                       <span>{opsDashboard?.memory_snapshot.training_candidates ?? 0}</span>
                       <p>Candidatos de treino a partir do uso real.</p>
+                    </article>
+                    <article className="provider-card">
+                      <strong>Memory Inbox</strong>
+                      <span>{opsDashboard?.memory_snapshot.review_pending ?? memoryCandidates.length}</span>
+                      <p>Candidatos revisáveis antes de virar memória durável.</p>
                     </article>
                     <article className="provider-card">
                       <strong>Transcript events</strong>
@@ -1121,6 +1288,14 @@ export default function App() {
                             <strong>{candidate.source}</strong>
                             <span>{candidate.approved ? "approved" : "draft"}</span>
                             <p>{candidate.instruction}</p>
+                          </article>
+                        ))}
+                        <h4>Memory Inbox</h4>
+                        {memoryCandidates.map((candidate) => (
+                          <article key={candidate.id} className="memory-card">
+                            <strong>{candidate.title}</strong>
+                            <span>{candidate.scope} · {candidate.status}</span>
+                            <p>{compactText(candidate.content, 180)}</p>
                           </article>
                         ))}
                       </div>
@@ -1344,20 +1519,99 @@ export default function App() {
                     <button
                       type="button"
                       className="ghost-button"
-                      onClick={async () => {
-                        const session = await createSession({
-                          project_id: selectedProjectId || undefined,
-                          title: "Nova sessão Orquestra",
-                          provider_id: selectedProviderId,
-                          model_name: selectedModel
-                        });
-                        setSelectedSessionId(session.id);
-                        await refreshProjectScoped(selectedProjectId);
-                      }}
+                      onClick={openSessionSetup}
                     >
                       Nova sessão
                     </button>
                   </div>
+                  {showSessionSetup && (
+                    <div className="session-setup-card">
+                      <p className="eyebrow">Setup rápido</p>
+                      <label className="full-label">
+                        Objetivo obrigatório
+                        <textarea
+                          value={sessionSetup.objective}
+                          onChange={(event) => setSessionSetup((current) => ({ ...current, objective: event.target.value }))}
+                          placeholder="Ex.: pesquisar fontes locais sobre uma investigação OSINT e manter hipóteses rastreáveis."
+                        />
+                      </label>
+                      <label className="full-label">
+                        Preset operacional
+                        <select
+                          value={sessionSetup.preset}
+                          onChange={(event) => {
+                            const next = defaultSessionProfile(event.target.value as SessionProfile["preset"]);
+                            setSessionSetup((current) => ({ ...next, objective: current.objective }));
+                          }}
+                        >
+                          {presetOptions.map((preset) => (
+                            <option key={preset.value} value={preset.value}>
+                              {preset.label} · {preset.helper}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="quick-toggle-grid">
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sessionSetup.rag_policy.enabled)}
+                            onChange={(event) =>
+                              setSessionSetup((current) => ({ ...current, rag_policy: { ...current.rag_policy, enabled: event.target.checked } }))
+                            }
+                          />
+                          <span>usar RAG</span>
+                        </label>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sessionSetup.rag_policy.include_workspace)}
+                            onChange={(event) =>
+                              setSessionSetup((current) => ({
+                                ...current,
+                                rag_policy: { ...current.rag_policy, include_workspace: event.target.checked }
+                              }))
+                            }
+                          />
+                          <span>usar Workspace</span>
+                        </label>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sessionSetup.memory_policy.auto_capture)}
+                            onChange={(event) =>
+                              setSessionSetup((current) => ({
+                                ...current,
+                                memory_policy: { ...current.memory_policy, auto_capture: event.target.checked }
+                              }))
+                            }
+                          />
+                          <span>capturar memórias</span>
+                        </label>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sessionSetup.memory_policy.generate_training_candidates)}
+                            onChange={(event) =>
+                              setSessionSetup((current) => ({
+                                ...current,
+                                memory_policy: { ...current.memory_policy, generate_training_candidates: event.target.checked }
+                              }))
+                            }
+                          />
+                          <span>modo dataset</span>
+                        </label>
+                      </div>
+                      <div className="composer-actions">
+                        <button type="button" className="ghost-button" onClick={() => setShowSessionSetup(false)}>
+                          Cancelar
+                        </button>
+                        <button type="button" className="primary-button" onClick={handleCreateSessionWithProfile}>
+                          Iniciar chat
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <div className="session-list">
                     {sessions.map((session) => (
                       <button
@@ -1427,6 +1681,157 @@ export default function App() {
                       </button>
                     </div>
                   </div>
+                </section>
+
+                <section className="panel memory-rag-panel">
+                  <div className="panel-head">
+                    <div>
+                      <p className="eyebrow">Memória & RAG</p>
+                      <h3>Painel lateral da sessão</h3>
+                    </div>
+                    <button type="button" className="ghost-button" onClick={handleSaveSessionProfile} disabled={!sessionProfile || profileSaving}>
+                      {profileSaving ? "Salvando..." : "Salvar"}
+                    </button>
+                  </div>
+
+                  {sessionProfile ? (
+                    <>
+                      <div className="form-stack tight">
+                        <label className="full-label">
+                          Objetivo
+                          <textarea
+                            value={sessionProfile.objective}
+                            onChange={(event) => updateDraftProfile((current) => ({ ...current, objective: event.target.value }))}
+                          />
+                        </label>
+                        <label className="full-label">
+                          Preset
+                          <select
+                            value={sessionProfile.preset}
+                            onChange={(event) => {
+                              const next = defaultSessionProfile(event.target.value as SessionProfile["preset"]);
+                              updateDraftProfile((current) => ({ ...next, objective: current.objective }));
+                            }}
+                          >
+                            {presetOptions.map((preset) => (
+                              <option key={preset.value} value={preset.value}>
+                                {preset.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="quick-toggle-grid">
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sessionProfile.memory_policy.enabled)}
+                            onChange={(event) =>
+                              updateDraftProfile((current) => ({
+                                ...current,
+                                memory_policy: { ...current.memory_policy, enabled: event.target.checked }
+                              }))
+                            }
+                          />
+                          <span>memória no prompt</span>
+                        </label>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sessionProfile.rag_policy.enabled)}
+                            onChange={(event) =>
+                              updateDraftProfile((current) => ({
+                                ...current,
+                                rag_policy: { ...current.rag_policy, enabled: event.target.checked }
+                              }))
+                            }
+                          />
+                          <span>RAG ativo</span>
+                        </label>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sessionProfile.rag_policy.include_workspace)}
+                            onChange={(event) =>
+                              updateDraftProfile((current) => ({
+                                ...current,
+                                rag_policy: { ...current.rag_policy, include_workspace: event.target.checked }
+                              }))
+                            }
+                          />
+                          <span>Workspace</span>
+                        </label>
+                        <label className="toggle">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(sessionProfile.memory_policy.generate_training_candidates)}
+                            onChange={(event) =>
+                              updateDraftProfile((current) => ({
+                                ...current,
+                                memory_policy: { ...current.memory_policy, generate_training_candidates: event.target.checked }
+                              }))
+                            }
+                          />
+                          <span>dataset após aprovação</span>
+                        </label>
+                      </div>
+
+                      <div className="memory-telemetry">
+                        <article>
+                          <span>Último recall</span>
+                          <strong>{lastMemoryTelemetry.recallCount}</strong>
+                        </article>
+                        <article>
+                          <span>Inbox criada</span>
+                          <strong>{lastMemoryTelemetry.candidatesCreated}</strong>
+                        </article>
+                      </div>
+
+                      <div className="token-list">
+                        {(sessionProfile.rag_policy.collections ?? []).map((collection) => (
+                          <span key={collection}>{collection}</span>
+                        ))}
+                        <span>{sessionProfile.rag_policy.memory_collection || "orquestra_memory_v1"}</span>
+                      </div>
+
+                      <div className="memory-inbox">
+                        <div className="panel-head slim">
+                          <div>
+                            <p className="eyebrow">Memory Inbox</p>
+                            <h3>{memoryCandidates.length} pendentes</h3>
+                          </div>
+                        </div>
+                        {memoryCandidates.length === 0 ? (
+                          <div className="empty-state compact">
+                            <h4>Sem candidatos pendentes.</h4>
+                            <p>Novas interações sugerem memórias aqui sem promover nada automaticamente.</p>
+                          </div>
+                        ) : (
+                          memoryCandidates.map((candidate) => (
+                            <article key={candidate.id} className="memory-card candidate-card">
+                              <strong>{candidate.title}</strong>
+                              <span>{candidate.scope} · confiança {candidate.confidence.toFixed(2)}</span>
+                              <p>{compactText(candidate.content, 240)}</p>
+                              <div className="composer-actions">
+                                <button type="button" className="ghost-button" onClick={() => handleReviewMemoryCandidate(candidate, "reject")}>
+                                  Rejeitar
+                                </button>
+                                <button type="button" className="primary-button" onClick={() => handleReviewMemoryCandidate(candidate, "approve")}>
+                                  Aprovar
+                                </button>
+                              </div>
+                            </article>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="empty-state">
+                      <h4>Nenhuma sessão selecionada.</h4>
+                      <p>Crie uma sessão para configurar objetivo, preset, política de memória e ligação com RAG.</p>
+                    </div>
+                  )}
                 </section>
               </div>
             )}
@@ -1663,6 +2068,7 @@ export default function App() {
               <div className="context-list">
                 <span><strong>Arquivos:</strong> {shortList(sessionSummary?.relevant_files ?? [])}</span>
                 <span><strong>Próximos passos:</strong> {sessionSummary?.next_steps || "Sem próximos passos ainda."}</span>
+                <span><strong>Perfil:</strong> {sessionProfile ? `${sessionProfile.preset_label || sessionProfile.preset} · ${sessionProfile.objective || "sem objetivo"}` : "não carregado"}</span>
               </div>
             </section>
 

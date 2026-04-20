@@ -16,6 +16,7 @@ from .models import (
     JobRecord,
     MemoryManifestEntry,
     MemoryRecord,
+    MemoryReviewCandidate,
     MemoryTopic,
     ModelArtifact,
     Project,
@@ -29,6 +30,8 @@ from .models import (
     WorkspaceInsight,
     WorkspaceScan,
 )
+from .rag_memory import RagMemoryService
+from .runtime_state import runtime_backup_dir, runtime_install_dir
 
 
 def seed_default_state(session: Session, settings: OrquestraSettings) -> None:
@@ -161,6 +164,11 @@ class RagQueryOptions:
     task_type: str = "generic"
     remember: bool = False
     mock_llm: bool = False
+    memory_enabled: bool = True
+    memory_scopes: list[str] | None = None
+    include_workspace: bool = True
+    include_sources: bool = True
+    max_context_chars: int = 9000
 
 
 class LocalRagEngine:
@@ -170,6 +178,22 @@ class LocalRagEngine:
         self.memory_graph = MemoryGraphService(settings)
 
     def query(self, session: Session, options: RagQueryOptions, *, project_id: str | None = None) -> dict[str, Any]:
+        rag_memory_payload: dict[str, Any] = {"items": [], "status": "disabled", "collection_name": "orquestra_memory_v1"}
+        external_memory_context = ""
+        if options.memory_enabled:
+            rag_memory = RagMemoryService(self.settings)
+            rag_memory_payload = rag_memory.recall(
+                options.question,
+                session=session,
+                project_id=project_id,
+                session_id=options.session_id,
+                scopes=options.memory_scopes or None,
+                limit=6,
+            )
+            external_memory_context = rag_memory.format_context(
+                rag_memory_payload.get("items", []),
+                max_chars=min(max(options.max_context_chars, 1000), 9000),
+            )
         workflow = RagWorkflow(self.paths, mock_llm=options.mock_llm, provider_id=options.provider_id)
         result = workflow.invoke(
             question=options.question,
@@ -180,7 +204,9 @@ class LocalRagEngine:
             expected_output=options.expected_output,
             task_type=options.task_type,
             remember=options.remember,
+            external_memory_context=external_memory_context,
         )
+        result["rag_memory"] = rag_memory_payload
         if options.remember and options.session_id and result.get("answer"):
             self.memory_graph.create_training_candidate(
                 session,
@@ -208,6 +234,8 @@ def ensure_runtime_dirs(settings: OrquestraSettings) -> None:
     settings.artifacts_root.mkdir(parents=True, exist_ok=True)
     rag_artifacts = settings.workspace_root / "experiments" / "orquestra" / "rag_exports"
     rag_artifacts.mkdir(parents=True, exist_ok=True)
+    runtime_install_dir(settings).mkdir(parents=True, exist_ok=True)
+    runtime_backup_dir(settings).mkdir(parents=True, exist_ok=True)
     settings.qdrant_path.mkdir(parents=True, exist_ok=True)
     memory_graph = MemoryGraphService(settings)
     memory_graph.paths.ensure()
@@ -244,6 +272,25 @@ def memory_record_to_dict(record: MemoryRecord) -> dict[str, Any]:
         "approved_for_training": record.approved_for_training,
         "metadata": json.loads(record.metadata_json or "{}"),
         "created_at": record.created_at.isoformat(),
+    }
+
+
+def memory_review_candidate_to_dict(candidate: MemoryReviewCandidate) -> dict[str, Any]:
+    return {
+        "id": candidate.id,
+        "project_id": candidate.project_id,
+        "session_id": candidate.session_id,
+        "scope": candidate.scope,
+        "title": candidate.title,
+        "content": candidate.content,
+        "rationale": candidate.rationale,
+        "source_message_ids": json.loads(candidate.source_message_ids_json or "[]"),
+        "citations": json.loads(candidate.citations_json or "[]"),
+        "confidence": candidate.confidence,
+        "status": candidate.status,
+        "metadata": json.loads(candidate.metadata_json or "{}"),
+        "created_at": candidate.created_at.isoformat(),
+        "reviewed_at": candidate.reviewed_at.isoformat() if candidate.reviewed_at else None,
     }
 
 
