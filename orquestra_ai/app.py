@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import json
 from pathlib import Path
-from typing import Iterator
+from typing import AsyncIterator, Iterator
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -397,10 +398,29 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             workspace_service.gc_derivatives(session)
             session.commit()
 
+    def shutdown_runtime() -> None:
+        try:
+            memory_graph.index.close()
+        except Exception:
+            pass
+        try:
+            workspace_service.index.close()
+        except Exception:
+            pass
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        bootstrap_runtime()
+        try:
+            yield
+        finally:
+            shutdown_runtime()
+
     app = FastAPI(
         title="Orquestra AI",
         version=app_version,
         description="Control plane unificado do Orquestra.",
+        lifespan=lifespan,
     )
     app.state.settings = app_settings
     app.state.engine = engine
@@ -412,7 +432,6 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     app.state.workspace_service = workspace_service
     app.state.operations = operations
     app.state.workflows = workflows
-    bootstrap_runtime()
 
     frontend_dist = app_settings.workspace_root / "orquestra_web" / "dist"
     assets_dir = frontend_dist / "assets"
@@ -426,21 +445,6 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    @app.on_event("startup")
-    def on_startup() -> None:
-        bootstrap_runtime()
-
-    @app.on_event("shutdown")
-    def on_shutdown() -> None:
-        try:
-            memory_graph.index.close()
-        except Exception:
-            pass
-        try:
-            workspace_service.index.close()
-        except Exception:
-            pass
 
     def get_session(request: Request) -> Iterator[Session]:
         with Session(request.app.state.engine) as session:

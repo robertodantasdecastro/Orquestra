@@ -140,6 +140,45 @@ Validacao de pacote:
 - `GET /api/registry/models`
 - `POST /api/registry/models`
 
+## Semantica operacional das flags publicas
+Os contratos expostos por `POST /api/chat/stream` e `POST /api/rag/query` agora tem comportamento real no backend:
+
+- `planner_enabled`: liga/desliga o bloco de planner no contexto e a reconstrução operacional da sessao.
+- `memory_selector_mode`: aceita `hybrid` como padrao e `lexical` como selecao explicita sem reforco vetorial.
+- `include_workspace`: controla a secao `Workspace/fontes` na montagem de contexto.
+- `include_sources`: controla a secao `RAG legado` e as citacoes vindas de fontes locais/colecoes legadas.
+- `compaction_enabled`: alterna entre `snapshot compacto` e fluxo simplificado de resumo.
+- `context_budget`: limita o bloco agregado usado por chat/RAG sob conversas longas.
+
+Ordem fixa de montagem de contexto:
+1. perfil da sessao
+2. snapshot compacto
+3. planner
+4. memoria relevante
+5. workspace/fontes
+6. RAG legado
+7. mensagem atual
+
+## Checkpoint e retomada
+O fluxo de continuidade do Orquestra agora e versionado no proprio repositório:
+
+- arquivo canonico: `.codex/memory/orquestra-continuity.md`
+- espelho humano: `docs/continuity/orquestra-current.md`
+
+Ao concluir cada micro-etapa:
+1. atualizar o handoff
+2. rodar a validacao minima da etapa
+3. rodar `git diff --check`
+4. registrar `git status --short`
+5. criar commit
+6. fazer push
+
+Retomada recomendada:
+
+```text
+Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.
+```
+
 ## Notas de projeto
 - `claude-code/v1` deve seguir somente como referencia de UX e arquitetura, nao como base de codigo.
 - o `rag/llm.py` agora aceita providers do gateway sem quebrar o fluxo RAG antigo.

@@ -1,34 +1,34 @@
 # Orquestra Continuity
 
 - Branch atual: `codex/orquestra-paridade-claudecodes-v1`
-- Ultimo commit: `1611e72`
-- Etapa concluida: `Etapa 4 concluida`
-- Estado do worktree: `Pronto para checkpoint Git da Etapa 4`
+- Ultimo commit: `f4b4583`
+- Etapa concluida: `Etapa 5 concluida`
+- Estado do worktree: `Pronto para checkpoint Git final`
 - Validacoes executadas:
-  - `source .venv/bin/activate && PYTHONPATH=. pytest -q tests/test_memory_hybrid.py tests/test_compaction_planner.py tests/test_workflow_engine.py`
+  - `source .venv/bin/activate && PYTHONPATH=. pytest -q`
   - `cd orquestra_web && ./node_modules/.bin/vitest run --environment jsdom`
   - `cd orquestra_web && ./node_modules/.bin/tsc -b`
   - `./scripts/validate_orquestra.sh`
   - `git diff --check`
 - Pendencias abertas:
-  - migrar `@app.on_event` para `lifespan` no FastAPI
-  - alinhar documentação final das flags públicas, validação e protocolo de retomada
-  - fechar o checkpoint final com resumo executivo e branch limpa
-- Proxima acao exata: `Implementar a Etapa 5: trocar startup/shutdown por lifespan, atualizar docs/README/continuidade operacional, validar tudo e criar checkpoint final`
+  - nenhuma pendencia tecnica imediata desta rodada de paridade
+  - proximo ciclo pode focar providers reais, OCR/transcricao opcional e prontidao de Train Ops/Registry
+- Proxima acao exata: `Revisar a branch, abrir PR ou seguir para a proxima rodada de produto a partir deste checkpoint final`
 - Arquivos principais tocados:
-  - `tests/test_memory_hybrid.py`
-  - `tests/test_compaction_planner.py`
-  - `tests/test_workflow_engine.py`
-  - `orquestra_web/src/App.test.tsx`
+  - `orquestra_ai/app.py`
+  - `README.md`
+  - `docs/02-manual-operacional.md`
+  - `docs/11-orquestra-ai-control-plane.md`
+  - `docs/12-orquestra-v2-memorygraph-workspace.md`
+  - `docs/continuity/orquestra-current.md`
   - `.codex/memory/orquestra-continuity.md`
 - O que mudou:
-  - a suite backend agora cobre fallback sem vetor, `auto compact`, dependencias do planner, cancelamento, falha parcial e recovery de workflow
-  - a suite de UI cobre planner com dependencias e `Execution Center` com artefato, task vinculada e restart recovery
-  - `validate_orquestra.sh` permaneceu verde com backend, frontend, build web, `cargo check`, pacote macOS e smoke de API
+  - o backend FastAPI trocou `@app.on_event` por `lifespan`, removendo os warnings de startup/shutdown
+  - README e docs agora documentam semantica real das flags de contexto, ordem do prompt e protocolo de checkpoint/retomada
+  - foi criado o espelho humano `docs/continuity/orquestra-current.md` para retomada barata fora da thread
 - O que validar:
-  - remover warnings de `on_event` com migração para `lifespan`
-  - conferir se README e docs refletem o comportamento final das flags e do handoff
-  - repetir validação oficial após o hardening final
+  - branch pronta para revisao humana, PR ou merge
+  - handoff curto segue suficiente para retomar sem reler a thread inteira
 - Caminhos de logs/artefatos:
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.log`
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.json`

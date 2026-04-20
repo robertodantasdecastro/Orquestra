@@ -491,9 +491,14 @@ Nesta fase, isso registra intencao e metadados. Execucao remota real sera ligada
 1. Abra `Execution Center`.
 2. Revise a lista `Local workflows`.
 3. Dispare o workflow de validacao ou crie um novo run pela API.
-4. Acompanhe status, progresso por passo e `log tail`.
+4. Acompanhe status, progresso por passo, `log tail`, `output_path` e preview do artefato.
 5. Use `Cancelar` quando precisar interromper a execucao.
-6. Depois do restart da app, reabra o Execution Center para confirmar a recuperacao do run persistido.
+6. Diferencie o estado final do run:
+   - `succeeded`: concluido com artefato final;
+   - `failed`: falhou com saida parcial persistida;
+   - `cancelled`: cancelado pelo usuario com estado final salvo;
+   - `interrupted`: recuperado apos restart.
+7. Depois do restart da app, reabra o Execution Center para confirmar a recuperacao do run persistido.
 
 ### Registrar modelo
 1. Abra `Execution Center`.
@@ -517,11 +522,35 @@ Essa validacao cobre:
 - smoke da API;
 - chat com perfil de sessao, resumo, resume e transcript;
 - compactacao de sessao e persistencia de `next_steps`;
+- `auto compact` sob contexto longo com `context_budget`;
 - planner, tarefas e consistencia de resumo;
+- dependencias de planner (`blocked_by` e `blocks`);
 - Memory Inbox, aprovacao e recall RAG associado;
-- workflow local multi-step;
+- workflow local multi-step, incluindo cancelamento, falha parcial e recovery apos restart;
 - scan de workspace;
 - preview e memoria.
+
+## Checkpoint e retomada
+Quando houver risco de interrupcao por limite do Codex, troca de login ou reinicio do computador, use este protocolo:
+
+1. atualize `.codex/memory/orquestra-continuity.md`
+2. rode a menor validacao significativa da etapa
+3. rode `git diff --check`
+4. confira `git status --short`
+5. crie um commit
+6. faca `git push`
+
+Fontes minimas para retomar sem reler toda a thread:
+- `AGENTS.md`
+- `.codex/memory/orquestra-continuity.md`
+- `git log --oneline -5`
+- `git status --short`
+
+Prompt curto recomendado:
+
+```text
+Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.
+```
 
 ## Troubleshooting
 ### API nao responde

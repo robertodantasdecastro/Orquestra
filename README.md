@@ -139,11 +139,53 @@ Web e desktop exibem o mesmo painel com:
 - Sessao com objetivo/preset, memoria revisavel, aprovacao de candidato e recall RAG associado estao integrados na V1 local.
 - Sessao longa usa compactacao persistente em vez de transcript integral no prompt.
 - Planner hibrido e tarefas reais ja aparecem no backend e na UI web/desktop.
-- Execution Center exibe workflows locais multi-step com status por passo e log tail.
+- Execution Center exibe workflows locais multi-step com status por passo, log tail, `output_path`, preview de artefato e recuperacao apos restart.
 - Providers reais sao opcionais; a validacao usa modo mock/local-safe.
 - Dashboard operacional, instalador, desinstalador e manual estao documentados.
 - `/api/health` e o dashboard expõem `app_version`, `schema_version`, `schema_target_version`, estado de migração, manifesto e backups recentes.
+- O backend FastAPI usa `lifespan` para bootstrap e shutdown sem warnings de `on_event`.
 - EC2 e demais conectores remotos permanecem para fase posterior.
+
+## Flags operacionais de contexto
+As flags publicas de `POST /api/chat/stream` e `POST /api/rag/query` agora tem efeito real no backend:
+
+- `planner_enabled`: liga/desliga a injecao de `PlannerSnapshot` e contexto operacional de tarefas.
+- `memory_selector_mode`: aceita `hybrid` como padrao e `lexical` como estrategia explicita de selecao.
+- `include_workspace`: controla a secao `Workspace/fontes` na montagem do contexto.
+- `include_sources`: controla a secao `RAG legado` e as fontes locais citadas.
+- `compaction_enabled` + `context_budget`: fazem o prompt usar `summary + recent tail + recalled memory`, em vez do transcript integral.
+
+Ordem fixa de contexto:
+1. perfil da sessao
+2. snapshot compacto
+3. planner
+4. memoria relevante
+5. workspace/fontes
+6. RAG legado
+7. mensagem atual
+
+## Checkpoint e retomada
+O protocolo de continuidade padrao do repositório usa:
+
+- `AGENTS.md`
+- `.codex/memory/orquestra-continuity.md`
+- `git log --oneline -5`
+- `git status --short`
+
+Ao fim de cada micro-etapa, o fluxo esperado e:
+
+1. atualizar `.codex/memory/orquestra-continuity.md`
+2. rodar a menor validacao significativa da etapa
+3. rodar `git diff --check`
+4. registrar `git status --short`
+5. criar commit
+6. fazer push da branch de trabalho
+
+Prompt curto recomendado para retomada:
+
+```text
+Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.
+```
 
 ## Requisitos
 - macOS
@@ -238,6 +280,7 @@ Remover tambem dados e logs:
 - [Instalacao e validacao macOS](docs/01-instalacao-validacao-macos.md)
 - [Orquestra AI Control Plane](docs/11-orquestra-ai-control-plane.md)
 - [Orquestra V2 MemoryGraph Workspace](docs/12-orquestra-v2-memorygraph-workspace.md)
+- [Checkpoint e retomada](docs/continuity/orquestra-current.md)
 
 ## Marca
 - Logo: `assets/brand/orquestra-logo.svg`

@@ -217,6 +217,7 @@ Garantias:
 - progresso por passo;
 - cancelamento;
 - log tail persistido em arquivo;
+- `output_path` persistido com preview estruturado de sucesso, falha parcial ou cancelamento;
 - retomada/reclassificacao apos restart;
 - vinculo opcional com sessao e tarefa do planner.
 
@@ -284,12 +285,14 @@ cd /caminho/para/Orquestra
 - smoke de `chat + summary + compact + planner + resume + transcript`
 - smoke de `attach-directory + workspace query + extract + preview + memorize`
 - smoke de `workflow local multi-step`
+- testes dedicados para cancelamento, falha parcial e recovery apos restart
+- testes dedicados para fallback sem vetor, `auto compact` e dependencias do planner
 - validação de tipagem/integração da nova superfície operacional e dos scripts de instalação macOS
 
 ## Proximos passos
 1. ligar providers reais via `LiteLLM Proxy`
-2. ampliar cobertura de UI/desktop com mais cenarios de workflow e planner
-3. adicionar OCR e transcricao real opcional
-4. amadurecer UX e readiness operacional de `Train Ops` e `Registry` sem depender ainda de execucao remota real
-5. decidir se a instalacao macOS evolui para `pkg` assinado ou segue script-first nesta fase
-6. avaliar assinatura e notarizacao quando houver distribuicao fora do ambiente local do usuario
+2. adicionar OCR e transcricao real opcional
+3. amadurecer UX e readiness operacional de `Train Ops` e `Registry` sem depender ainda de execucao remota real
+4. decidir se a instalacao macOS evolui para `pkg` assinado ou segue script-first nesta fase
+5. avaliar assinatura e notarizacao quando houver distribuicao fora do ambiente local do usuario
+6. manter o protocolo de continuidade curto e versionado para checkpoints futuros
