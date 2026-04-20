@@ -1,16 +1,15 @@
 # Orquestra Continuity
 
-- Branch atual: `codex/orquestra-paridade-claudecodes-v1`
-- Ultimo commit: `66f427b`
-- Etapa concluida: `Documentacao consolidada e pronta para promocao`
-- Estado do worktree: `Pronto para commit da atualizacao documental e merge em main`
+- Branch atual: `main`
+- Ultimo commit: `56745b0`
+- Etapa concluida: `Documentacao consolidada e publicada em main`
+- Estado do worktree: `Pronto para checkpoint final apos sincronizacao com origin/main`
 - Validacoes executadas:
   - `./scripts/validate_orquestra.sh`
   - `git diff --check`
 - Pendencias abertas:
-  - promover o checkpoint documental para `main`
   - se necessario depois, abrir um ciclo novo para providers reais, OCR/transcricao opcional e prontidao de Train Ops/Registry
-- Proxima acao exata: `Criar commit da documentacao reescrita, fazer push da branch de trabalho, mergear em main e enviar main ao remoto`
+- Proxima acao exata: `Seguir para o proximo ciclo de produto a partir de main, usando o handoff curto e evitando releitura completa da thread`
 - Arquivos principais tocados:
   - `README.md`
   - `docs/01-instalacao-validacao-macos.md`
@@ -23,8 +22,8 @@
   - a documentacao de instalacao, manual, control plane e MemoryGraph/Workspace foi alinhada com as 7 areas reais da UI
   - os textos agora refletem memoria hibrida, compactacao, planner, workflows locais, RAG operacional e instalacao macOS sem nomes antigos de tela
 - O que validar:
-  - merge limpo em `main`
-  - `main` sincronizada com o remoto
+  - `main` ja esta sincronizada com o remoto
+  - a retomada pode partir diretamente deste checkpoint
 - Caminhos de logs/artefatos:
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.log`
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.json`
