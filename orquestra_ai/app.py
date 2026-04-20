@@ -17,6 +17,8 @@ from .db import build_engine, init_database
 from .gateway import GatewayLlmError, OrquestraGateway
 from .memory_candidates import MemoryCandidateExtractor
 from .memory_graph import MemoryGraphService
+from .memory_recall import MemoryRecallService
+from .memory_types import default_memory_kind_for_scope, normalize_memory_kind
 from .models import (
     ChatMessage,
     ChatSession,
@@ -130,6 +132,11 @@ class ChatStreamRequest(BaseModel):
     include_workspace: bool | None = None
     include_sources: bool | None = None
     max_context_chars: int | None = None
+    compaction_enabled: bool | None = None
+    planner_enabled: bool | None = None
+    task_context_enabled: bool | None = None
+    memory_selector_mode: str | None = None
+    context_budget: int | None = None
 
 
 class MemoryUpsertRequest(BaseModel):
@@ -137,6 +144,7 @@ class MemoryUpsertRequest(BaseModel):
     session_id: str | None = None
     topic_id: str | None = None
     scope: str
+    memory_kind: str | None = None
     source: str = "manual"
     content: str
     confidence: float = 0.5
@@ -148,13 +156,16 @@ class MemoryUpsertRequest(BaseModel):
 class MemoryRecallRequest(BaseModel):
     query: str
     project_id: str | None = None
+    session_id: str | None = None
     scopes: list[str] = Field(default_factory=list)
+    memory_kinds: list[str] = Field(default_factory=list)
     limit: int = 6
 
 
 class MemoryPromoteRequest(BaseModel):
     project_id: str | None = None
     scope: str = "project_memory"
+    memory_kind: str | None = None
     title: str
     content: str
     source: str = "manual"
@@ -194,6 +205,11 @@ class RagQueryRequest(BaseModel):
     include_workspace: bool | None = None
     include_sources: bool | None = None
     max_context_chars: int | None = None
+    compaction_enabled: bool | None = None
+    planner_enabled: bool | None = None
+    task_context_enabled: bool | None = None
+    memory_selector_mode: str | None = None
+    context_budget: int | None = None
 
 
 class JobCreateRequest(BaseModel):
@@ -247,6 +263,7 @@ class WorkspaceExtractRequest(BaseModel):
 class WorkspaceMemorizeRequest(BaseModel):
     project_id: str | None = None
     scope: str = "workspace_memory"
+    memory_kind: str | None = None
     source: str = "workspace"
 
 
@@ -309,6 +326,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     engine = build_engine(app_settings.database_url)
     memory_graph = MemoryGraphService(app_settings)
     rag_memory = RagMemoryService(app_settings)
+    memory_recall = MemoryRecallService(app_settings)
     candidate_extractor = MemoryCandidateExtractor()
     workspace_service = WorkspaceService(app_settings)
     operations = OrquestraOperations(app_settings)
@@ -329,6 +347,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.memory_graph = memory_graph
     app.state.rag_memory = rag_memory
+    app.state.memory_recall = memory_recall
     app.state.candidate_extractor = candidate_extractor
     app.state.workspace_service = workspace_service
     app.state.operations = operations
@@ -652,31 +671,27 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         )
         include_workspace = payload.include_workspace if payload.include_workspace is not None else bool(rag_policy.get("include_workspace", True))
         include_sources = payload.include_sources if payload.include_sources is not None else bool(rag_policy.get("include_sources", True))
-        rag_memory_result = {"items": [], "status": "disabled", "collection_name": "orquestra_memory_v1"}
-        recalled: list[dict[str, object]] = []
+        context_snapshot = memory_graph.build_context_snapshot(
+            session,
+            chat_session,
+            context_budget=payload.context_budget or max_context_chars,
+        )
+        recall_result = {"items": [], "status": "disabled", "collection_name": "orquestra_memory_v1", "selector_mode": "hybrid"}
         if memory_enabled:
-            rag_memory_result = rag_memory.recall(
-                payload.message,
-                session=session,
-                project_id=effective_project_id,
-                session_id=chat_session.id,
-                scopes=memory_scopes,
-                preset=str(profile.get("preset", "")),
-                limit=int(rag_policy.get("top_k_memory", 6) or 6),
-            )
-            recalled = memory_graph.recall_memories(
+            recall_result = memory_recall.recall(
                 session,
                 query=payload.message,
                 project_id=effective_project_id,
+                session_id=chat_session.id,
                 scopes=memory_scopes,
-                limit=4,
+                limit=int(rag_policy.get("top_k_memory", 6) or 6),
             )
-        rag_memory_items = list(rag_memory_result.get("items", []))
+        recalled = list(recall_result.get("items", []))
         memory_context = "\n".join(
             part
             for part in (
-                rag_memory.format_context(rag_memory_items, max_chars=max_context_chars // 2),
-                "\n".join(f"- [{item.get('scope', 'memory')}] {item['title']}: {item['content']}" for item in recalled),
+                str(context_snapshot.get("context_text", "")).strip(),
+                memory_recall.format_context(recalled, max_chars=max_context_chars // 2),
             )
             if part
         ).strip()
@@ -687,8 +702,9 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 "channel": item.get("metadata", {}).get("channel", "memory") if isinstance(item.get("metadata"), dict) else "memory",
                 "source": item.get("source", ""),
                 "title": item.get("title", ""),
+                "memory_kind": item.get("memory_kind", ""),
             }
-            for item in rag_memory_items
+            for item in recalled
         ]
 
         gateway = OrquestraGateway(list_gateway_providers(session), mock=payload.mock_response)
@@ -699,8 +715,9 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             metadata_json=json.dumps(
                 {
                     "session_profile": profile,
-                    "rag_memory_recall": rag_memory_result,
+                    "rag_memory_recall": recall_result,
                     "recalled_memories": recalled,
+                    "compaction_state": context_snapshot.get("compaction_state", {}),
                     "include_workspace": include_workspace,
                     "include_sources": include_sources,
                 },
@@ -728,7 +745,9 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                             part
                             for part in (
                                 f"Perfil da sessao:\n{profile_prompt_section(profile)}",
-                                f"Resumo da sessao:\n{summary.current_state}" if summary.current_state else "",
+                                f"Resumo da sessao:\n{context_snapshot.get('context_text', summary.current_state)}"
+                                if context_snapshot.get("context_text", summary.current_state)
+                                else "",
                                 f"Memorias relevantes:\n{memory_context}" if memory_context else "",
                                 "Politica operacional: use memorias e RAG como apoio, mas nao promova nada para dataset sem aprovacao explicita.",
                                 f"Mensagem atual:\n{payload.message}",
@@ -758,8 +777,9 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 {
                     "session_profile": profile,
                     "memory_recall": recalled,
-                    "rag_memory_recall": rag_memory_result,
+                    "rag_memory_recall": recall_result,
                     "citations": memory_citations,
+                    "compaction_state": context_snapshot.get("compaction_state", {}),
                 },
                 ensure_ascii=False,
             ),
@@ -782,7 +802,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             user_message=user_message,
             assistant_message=assistant_message,
             citations=memory_citations,
-            recalled=[*rag_memory_items, *recalled],
+            recalled=recalled,
         )
         session.commit()
 
@@ -803,6 +823,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 "summary",
                 {
                     "current_state": updated_summary.current_state,
+                    "next_steps": json.loads(updated_summary.sections_json or "{}").get("next_steps", ""),
                     "updated_at": updated_summary.updated_at.isoformat(),
                 },
             )
@@ -814,7 +835,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "usage": response.usage,
                     "latency_seconds": response.latency_seconds,
                     "memory_candidates_created": len(candidates),
-                    "memory_recall_count": len(rag_memory_items) + len(recalled),
+                    "memory_recall_count": len(recalled),
                 },
             )
 
@@ -824,6 +845,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     def list_memory(
         project_id: str | None = None,
         scope: str | None = None,
+        memory_kind: str | None = None,
         session: Session = Depends(get_session),
     ) -> list[dict[str, object]]:
         statement = select(MemoryRecord).order_by(MemoryRecord.created_at.desc())
@@ -831,6 +853,8 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             statement = statement.where(MemoryRecord.project_id == project_id)
         if scope:
             statement = statement.where(MemoryRecord.scope == scope)
+        if memory_kind:
+            statement = statement.where(MemoryRecord.memory_kind == normalize_memory_kind(memory_kind))
         rows = session.exec(statement.limit(120)).all()
         return [memory_record_to_dict(row) for row in rows]
 
@@ -841,6 +865,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             session_id=payload.session_id,
             topic_id=payload.topic_id,
             scope=payload.scope,
+            memory_kind=normalize_memory_kind(payload.memory_kind, default=default_memory_kind_for_scope(payload.scope)),
             source=payload.source,
             content=payload.content,
             confidence=payload.confidence,
@@ -849,6 +874,13 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             metadata_json=json.dumps(payload.metadata, ensure_ascii=False),
         )
         session.add(record)
+        session.flush()
+        projection_result = memory_graph.project_memory_record(
+            session,
+            record,
+            title=str(payload.metadata.get("title", payload.source)),
+            metadata=payload.metadata,
+        )
         session.commit()
         session.refresh(record)
         index_result = rag_memory.upsert_memory(
@@ -860,6 +892,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         )
         payload_dict = memory_record_to_dict(record)
         payload_dict["rag_index"] = index_result
+        payload_dict["projection"] = projection_result
         return payload_dict
 
     @app.get("/api/memory/topics")
@@ -878,14 +911,16 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
 
     @app.post("/api/memory/recall")
     def recall_memory(payload: MemoryRecallRequest, session: Session = Depends(get_session)) -> dict[str, object]:
-        rows = memory_graph.recall_memories(
+        result = memory_recall.recall(
             session,
             query=payload.query,
             project_id=payload.project_id,
+            session_id=payload.session_id,
             scopes=payload.scopes,
+            memory_kinds=payload.memory_kinds,
             limit=payload.limit,
         )
-        return {"query": payload.query, "items": rows}
+        return {"query": payload.query, **result}
 
     @app.post("/api/memory/promote")
     def promote_memory(payload: MemoryPromoteRequest, session: Session = Depends(get_session)) -> dict[str, object]:
@@ -893,6 +928,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             session,
             project_id=payload.project_id,
             scope=payload.scope,
+            memory_kind=payload.memory_kind,
             title=payload.title,
             content=payload.content,
             source=payload.source,
@@ -950,6 +986,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             project_id=candidate.project_id,
             session_id=candidate.session_id,
             scope=candidate.scope,
+            memory_kind=candidate.memory_kind,
             source=f"memory_candidate:{candidate.id}",
             content=candidate.content,
             confidence=candidate.confidence,
@@ -962,6 +999,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         candidate.metadata_json = json.dumps(review_metadata, ensure_ascii=False)
         session.add(candidate)
         session.flush()
+        projection_result = memory_graph.project_memory_record(session, record, title=candidate.title, metadata=review_metadata)
         index_result = rag_memory.upsert_memory(
             record,
             title=candidate.title,
@@ -1006,6 +1044,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             "record": memory_record_to_dict(record),
             "training_candidate": training_candidate_to_dict(training_record) if training_record else None,
             "rag_index": index_result,
+            "projection": projection_result,
         }
 
     @app.post("/api/memory/candidates/{candidate_id}/reject")
@@ -1195,6 +1234,15 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             scope=payload.scope,
             source=payload.source,
         )
+        if payload.memory_kind:
+            record.memory_kind = normalize_memory_kind(payload.memory_kind, default=record.memory_kind)
+        session.flush()
+        projection_result = memory_graph.project_memory_record(
+            session,
+            record,
+            title=asset.title or asset.relative_path,
+            metadata=json.loads(record.metadata_json or "{}"),
+        )
         session.commit()
         session.refresh(record)
         payload_dict = memory_record_to_dict(record)
@@ -1205,6 +1253,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             source_ref=asset.id,
             approved=True,
         )
+        payload_dict["projection"] = projection_result
         return payload_dict
 
     @app.get("/api/training/jobs")

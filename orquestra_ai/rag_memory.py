@@ -42,6 +42,7 @@ def _matches_metadata(
     project_id: str | None,
     session_id: str | None,
     scopes: list[str] | None,
+    memory_kinds: list[str] | None,
     preset: str | None,
 ) -> bool:
     if project_id and metadata.get("project_id") not in (project_id, "", None):
@@ -49,6 +50,8 @@ def _matches_metadata(
     if session_id and metadata.get("session_id") not in (session_id, "", None):
         return False
     if scopes and metadata.get("scope") not in scopes:
+        return False
+    if memory_kinds and metadata.get("memory_kind") not in memory_kinds:
         return False
     if preset and metadata.get("preset") not in (preset, "", None):
         return False
@@ -81,6 +84,7 @@ class RagMemoryService:
                 "project_id": record.project_id or "",
                 "session_id": record.session_id or "",
                 "scope": record.scope,
+                "memory_kind": record.memory_kind,
                 "preset": preset or str(metadata.get("preset", "")),
                 "source_kind": source_kind,
                 "source_ref": source_ref or record.source,
@@ -103,6 +107,7 @@ class RagMemoryService:
         project_id: str | None = None,
         session_id: str | None = None,
         scopes: list[str] | None = None,
+        memory_kinds: list[str] | None = None,
         preset: str | None = None,
         limit: int = 6,
     ) -> dict[str, Any]:
@@ -111,7 +116,14 @@ class RagMemoryService:
         try:
             hits = query_collection(self.paths, ORQUESTRA_MEMORY_COLLECTION, query, top_k=max(limit * 4, limit))
             for hit in hits:
-                if not _matches_metadata(hit.metadata, project_id=project_id, session_id=session_id, scopes=scopes, preset=preset):
+                if not _matches_metadata(
+                    hit.metadata,
+                    project_id=project_id,
+                    session_id=session_id,
+                    scopes=scopes,
+                    memory_kinds=memory_kinds,
+                    preset=preset,
+                ):
                     continue
                 items.append(
                     {
@@ -119,6 +131,7 @@ class RagMemoryService:
                         "title": hit.metadata.get("title") or hit.metadata.get("source_ref") or "memoria",
                         "content": hit.text,
                         "scope": hit.metadata.get("scope", "memory"),
+                        "memory_kind": hit.metadata.get("memory_kind", "project"),
                         "source": hit.metadata.get("source_ref", ""),
                         "score": 1.0 - float(hit.distance or 0.0),
                         "metadata": hit.metadata | {"channel": "memory", "backend": "chroma"},
@@ -136,6 +149,7 @@ class RagMemoryService:
                 project_id=project_id,
                 session_id=session_id,
                 scopes=scopes,
+                memory_kinds=memory_kinds,
                 preset=preset,
                 limit=limit - len(items),
                 excluded_ids={str(item["id"]).replace("orquestra-memory:", "") for item in items},
@@ -157,6 +171,7 @@ class RagMemoryService:
         project_id: str | None,
         session_id: str | None,
         scopes: list[str] | None,
+        memory_kinds: list[str] | None,
         preset: str | None,
         limit: int,
         excluded_ids: set[str],
@@ -168,6 +183,8 @@ class RagMemoryService:
             statement = statement.where((MemoryRecord.session_id == session_id) | (MemoryRecord.session_id.is_(None)))
         if scopes:
             statement = statement.where(MemoryRecord.scope.in_(scopes))
+        if memory_kinds:
+            statement = statement.where(MemoryRecord.memory_kind.in_(memory_kinds))
         rows = session.exec(statement.limit(120)).all()
         ranked: list[dict[str, Any]] = []
         for record in rows:
@@ -185,6 +202,7 @@ class RagMemoryService:
                     "title": metadata.get("title") or record.source,
                     "content": record.content,
                     "scope": record.scope,
+                    "memory_kind": record.memory_kind,
                     "source": record.source,
                     "score": round(score, 4),
                     "metadata": metadata | {"channel": "memory", "backend": "lexical_fallback"},
@@ -197,7 +215,10 @@ class RagMemoryService:
         rendered: list[str] = []
         total = 0
         for item in items:
-            line = f"- [{item.get('scope', 'memory')}] {item.get('title', 'memoria')}: {item.get('content', '')}".strip()
+            line = (
+                f"- [{item.get('scope', 'memory')}/{item.get('memory_kind', 'project')}] "
+                f"{item.get('title', 'memoria')}: {item.get('content', '')}"
+            ).strip()
             if total + len(line) > max_chars:
                 break
             rendered.append(line)

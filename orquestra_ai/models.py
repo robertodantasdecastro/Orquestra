@@ -95,12 +95,27 @@ class SessionSummary(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
+class SessionCompactionState(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    session_id: str = Field(foreign_key="chatsession.id", index=True, unique=True)
+    last_compacted_message_id: Optional[str] = None
+    summary_version: int = 1
+    next_steps_json: str = "[]"
+    preserved_recent_turns: int = 6
+    compacted_message_count: int = 0
+    compacted_at: datetime = Field(default_factory=utc_now, nullable=False)
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
 class MemoryRecord(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     project_id: Optional[str] = Field(default=None, foreign_key="project.id")
     session_id: Optional[str] = Field(default=None, foreign_key="chatsession.id", index=True)
     topic_id: Optional[str] = Field(default=None, foreign_key="memorytopic.id", index=True)
     scope: str = Field(index=True)
+    memory_kind: str = Field(default="project", index=True)
     source: str = "manual"
     content: str
     confidence: float = 0.5
@@ -115,6 +130,7 @@ class MemoryReviewCandidate(SQLModel, table=True):
     project_id: Optional[str] = Field(default=None, foreign_key="project.id", index=True)
     session_id: Optional[str] = Field(default=None, foreign_key="chatsession.id", index=True)
     scope: str = Field(default="session_memory", index=True)
+    memory_kind: str = Field(default="project", index=True)
     title: str
     content: str
     rationale: str = ""
@@ -168,6 +184,65 @@ class TrainingCandidate(SQLModel, table=True):
     metadata_json: str = "{}"
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
     updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class PlannerSnapshot(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    session_id: str = Field(foreign_key="chatsession.id", index=True, unique=True)
+    objective: str = ""
+    strategy: str = ""
+    next_steps_json: str = "[]"
+    risks_json: str = "[]"
+    metadata_json: str = "{}"
+    last_planned_at: datetime = Field(default_factory=utc_now, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class SessionTask(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    session_id: str = Field(foreign_key="chatsession.id", index=True)
+    subject: str
+    description: str = ""
+    active_form: str = ""
+    status: str = Field(default="pending", index=True)
+    owner: str = "orquestra"
+    blocked_by_json: str = "[]"
+    blocks_json: str = "[]"
+    position: int = 0
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class WorkflowRun(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    session_id: Optional[str] = Field(default=None, foreign_key="chatsession.id", index=True)
+    task_id: Optional[str] = Field(default=None, foreign_key="sessiontask.id", index=True)
+    workflow_name: str = Field(index=True)
+    status: str = Field(default="pending", index=True)
+    summary: str = ""
+    log_path: str = ""
+    output_path: str = ""
+    progress: float = 0.0
+    cancel_requested: bool = False
+    metadata_json: str = "{}"
+    started_at: datetime = Field(default_factory=utc_now, nullable=False)
+    finished_at: Optional[datetime] = None
+
+
+class WorkflowStepRun(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    run_id: str = Field(foreign_key="workflowrun.id", index=True)
+    step_index: int = Field(index=True)
+    step_type: str = Field(index=True)
+    label: str
+    status: str = Field(default="pending", index=True)
+    input_json: str = "{}"
+    output_json: str = "{}"
+    metadata_json: str = "{}"
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
 
 
 class JobRecord(SQLModel, table=True):

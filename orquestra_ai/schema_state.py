@@ -4,13 +4,14 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy import inspect
 from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
 from .models import RuntimeMetadata
 
-ORQUESTRA_DB_SCHEMA_VERSION = 2
+ORQUESTRA_DB_SCHEMA_VERSION = 6
 ORQUESTRA_DB_LEGACY_VERSION = 1
 
 
@@ -50,6 +51,48 @@ def detect_schema_version(engine: Engine, *, existing_tables: set[str] | None = 
 def apply_schema_migrations(engine: Engine, *, existing_tables: set[str] | None = None) -> dict[str, Any]:
     current_version = detect_schema_version(engine, existing_tables=existing_tables)
     changed = current_version < ORQUESTRA_DB_SCHEMA_VERSION
+    inspector = inspect(engine)
+    tables = set(existing_tables) if existing_tables is not None else set(inspector.get_table_names())
+
+    with engine.begin() as connection:
+        if "memoryrecord" in tables:
+            _ensure_column(connection, inspector, "memoryrecord", "memory_kind", "VARCHAR DEFAULT 'project'")
+            connection.execute(
+                text(
+                    """
+                    UPDATE memoryrecord
+                    SET memory_kind = CASE scope
+                        WHEN 'session_memory' THEN 'user'
+                        WHEN 'workspace_memory' THEN 'reference'
+                        WHEN 'source_fact' THEN 'reference'
+                        WHEN 'persona_memory' THEN 'persona'
+                        WHEN 'training_signal' THEN 'dataset'
+                        WHEN 'project_memory' THEN 'project'
+                        ELSE 'project'
+                    END
+                    WHERE memory_kind IS NULL OR TRIM(memory_kind) = ''
+                    """
+                )
+            )
+        if "memoryreviewcandidate" in tables:
+            _ensure_column(connection, inspector, "memoryreviewcandidate", "memory_kind", "VARCHAR DEFAULT 'project'")
+            connection.execute(
+                text(
+                    """
+                    UPDATE memoryreviewcandidate
+                    SET memory_kind = CASE scope
+                        WHEN 'session_memory' THEN 'user'
+                        WHEN 'workspace_memory' THEN 'reference'
+                        WHEN 'source_fact' THEN 'reference'
+                        WHEN 'persona_memory' THEN 'persona'
+                        WHEN 'training_signal' THEN 'dataset'
+                        WHEN 'project_memory' THEN 'project'
+                        ELSE 'project'
+                    END
+                    WHERE memory_kind IS NULL OR TRIM(memory_kind) = ''
+                    """
+                )
+            )
 
     with Session(engine) as session:
         history_record = _get_metadata(session, "schema_history_json")
@@ -80,3 +123,10 @@ def apply_schema_migrations(engine: Engine, *, existing_tables: set[str] | None 
         "changed": changed,
         "previous_version": current_version,
     }
+
+
+def _ensure_column(connection, inspector, table_name: str, column_name: str, sql_type: str) -> None:
+    columns = {item["name"] for item in inspector.get_columns(table_name)}
+    if column_name in columns:
+        return
+    connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {sql_type}"))

@@ -12,12 +12,17 @@ from sqlmodel import Session, select
 from rag.common import append_jsonl, read_jsonl, write_json
 
 from .config import OrquestraSettings
+from .memory_types import default_memory_kind_for_scope, normalize_memory_kind
 from .models import (
     ChatMessage,
     ChatSession,
     MemoryManifestEntry,
     MemoryRecord,
     MemoryTopic,
+    PlannerSnapshot,
+    Project,
+    SessionCompactionState,
+    SessionTask,
     SessionSummary,
     SessionTranscript,
     TrainingCandidate,
@@ -27,11 +32,15 @@ from .vector_index import OrquestraVectorIndex, blend_scores, recency_bonus, sco
 
 
 SECTION_ORDER = [
+    "objective",
     "current_state",
     "task_specification",
+    "decisions",
+    "open_questions",
+    "next_steps",
     "files_and_functions",
     "workflow",
-    "errors_and_corrections",
+    "recent_failures",
     "key_results",
     "worklog",
 ]
@@ -45,10 +54,15 @@ class MemoryGraphPaths:
     topics_dir: Path
     manifests_dir: Path
     training_dir: Path
+    memdir_dir: Path
+    memdir_global_dir: Path
+    memdir_projects_dir: Path
+    memdir_sessions_dir: Path
 
     @classmethod
     def from_settings(cls, settings: OrquestraSettings) -> "MemoryGraphPaths":
         root = settings.artifacts_root / "memorygraph"
+        memdir_dir = root / "memdir"
         return cls(
             root=root,
             transcripts_dir=root / "transcripts",
@@ -56,6 +70,10 @@ class MemoryGraphPaths:
             topics_dir=root / "topics",
             manifests_dir=root / "manifests",
             training_dir=root / "training_candidates",
+            memdir_dir=memdir_dir,
+            memdir_global_dir=memdir_dir / "global",
+            memdir_projects_dir=memdir_dir / "projects",
+            memdir_sessions_dir=memdir_dir / "sessions",
         )
 
     def ensure(self) -> None:
@@ -66,6 +84,10 @@ class MemoryGraphPaths:
             self.topics_dir,
             self.manifests_dir,
             self.training_dir,
+            self.memdir_dir,
+            self.memdir_global_dir,
+            self.memdir_projects_dir,
+            self.memdir_sessions_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
 
@@ -104,6 +126,40 @@ def _extract_code_tokens(text: str) -> list[str]:
     return results[:12]
 
 
+def _safe_json(raw: str | None, fallback: Any) -> Any:
+    try:
+        return json.loads(raw or "")
+    except Exception:
+        return fallback
+
+
+def _frontmatter_scalar(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return '""'
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def _parse_frontmatter(path: Path) -> dict[str, Any]:
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    if not raw.startswith("---\n"):
+        return {}
+    parts = raw.split("\n---\n", 1)
+    if len(parts) != 2:
+        return {}
+    payload: dict[str, Any] = {}
+    for line in parts[0].splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        payload[key.strip()] = value.strip().strip('"')
+    return payload
+
+
 class MemoryGraphService:
     def __init__(self, settings: OrquestraSettings) -> None:
         self.settings = settings
@@ -125,6 +181,119 @@ class MemoryGraphService:
 
     def candidate_path(self, candidate_id: str) -> Path:
         return self.paths.training_dir / f"{_slugify(candidate_id)}.json"
+
+    def memdir_entrypoint(self, base_dir: Path) -> Path:
+        return base_dir / "MEMORY.md"
+
+    def project_memdir(self, project_slug: str) -> Path:
+        return self.paths.memdir_projects_dir / _slugify(project_slug)
+
+    def session_memdir(self, session_id: str) -> Path:
+        return self.paths.memdir_sessions_dir / _slugify(session_id)
+
+    def _resolve_project_slug(self, session: Session, project_id: str | None) -> str | None:
+        if not project_id:
+            return None
+        project = session.get(Project, project_id)
+        return project.slug if project is not None else _slugify(project_id)
+
+    def _ensure_memdir_base(self, base_dir: Path, heading: str) -> None:
+        base_dir.mkdir(parents=True, exist_ok=True)
+        entrypoint = self.memdir_entrypoint(base_dir)
+        if not entrypoint.exists():
+            entrypoint.write_text(f"# {heading}\n\nNenhuma memória projetada ainda.\n", encoding="utf-8")
+
+    def _memory_file_path(self, base_dir: Path, record: MemoryRecord, title: str) -> Path:
+        stamp = record.created_at.strftime("%Y%m%d-%H%M%S")
+        slug = _slugify(title or record.source or record.id)
+        return base_dir / f"{stamp}-{slug}-{record.id[:8]}.md"
+
+    def _render_projected_memory(self, record: MemoryRecord, *, title: str, metadata: dict[str, Any]) -> str:
+        header = [
+            "---",
+            f"id: {_frontmatter_scalar(record.id)}",
+            f"title: {_frontmatter_scalar(title)}",
+            f"kind: {_frontmatter_scalar(record.memory_kind)}",
+            f"scope: {_frontmatter_scalar(record.scope)}",
+            f"project_id: {_frontmatter_scalar(record.project_id or '')}",
+            f"session_id: {_frontmatter_scalar(record.session_id or '')}",
+            f"source: {_frontmatter_scalar(record.source)}",
+            f"updated_at: {_frontmatter_scalar(record.created_at.isoformat())}",
+            f"confidence: {_frontmatter_scalar(record.confidence)}",
+            f"approved: {_frontmatter_scalar(True)}",
+            "---",
+            "",
+            f"# {title}",
+            "",
+            record.content.strip(),
+            "",
+        ]
+        if metadata:
+            header.extend(
+                [
+                    "## Metadata",
+                    "",
+                    "```json",
+                    json.dumps(metadata, ensure_ascii=False, indent=2),
+                    "```",
+                    "",
+                ]
+            )
+        return "\n".join(header)
+
+    def _write_memdir_index(self, base_dir: Path, heading: str) -> None:
+        files = sorted(path for path in base_dir.glob("*.md") if path.name != "MEMORY.md")
+        lines = [f"# {heading}", ""]
+        if not files:
+            lines.append("Nenhuma memória projetada ainda.")
+        else:
+            for path in files:
+                frontmatter = _parse_frontmatter(path)
+                title = frontmatter.get("title") or path.stem
+                kind = frontmatter.get("kind") or "project"
+                scope = frontmatter.get("scope") or "memory"
+                updated_at = frontmatter.get("updated_at") or ""
+                lines.append(f"- `{path.name}` · {title} · `{kind}` · `{scope}` · {updated_at}")
+        self.memdir_entrypoint(base_dir).write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+    def project_memory_record(
+        self,
+        session: Session,
+        record: MemoryRecord,
+        *,
+        title: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload_metadata = metadata or _safe_json(record.metadata_json, {})
+        project_slug = self._resolve_project_slug(session, record.project_id)
+        targets: list[tuple[Path, str]] = [(self.paths.memdir_global_dir, "Global Memory")]
+        if project_slug:
+            targets.append((self.project_memdir(project_slug), f"Project Memory · {project_slug}"))
+        if record.session_id:
+            targets.append((self.session_memdir(record.session_id), f"Session Memory · {record.session_id}"))
+
+        written_paths: list[str] = []
+        selected_path = ""
+        for base_dir, heading in targets:
+            self._ensure_memdir_base(base_dir, heading)
+            memory_path = self._memory_file_path(base_dir, record, title or payload_metadata.get("title") or record.source)
+            memory_path.write_text(
+                self._render_projected_memory(
+                    record,
+                    title=title or str(payload_metadata.get("title") or record.source),
+                    metadata=payload_metadata,
+                ),
+                encoding="utf-8",
+            )
+            self._write_memdir_index(base_dir, heading)
+            written_paths.append(str(memory_path))
+            if not selected_path:
+                selected_path = str(memory_path)
+
+        merged_metadata = payload_metadata | {"projection_paths": written_paths, "projection_path": selected_path}
+        record.metadata_json = json.dumps(merged_metadata, ensure_ascii=False)
+        session.add(record)
+        return {"projection_path": selected_path, "projection_paths": written_paths}
 
     def append_transcript_message(
         self,
@@ -192,6 +361,18 @@ class MemoryGraphService:
             summary.sections_json = json.dumps(sections, ensure_ascii=False)
             summary.last_message_id = last_message_id
             summary.updated_at = utc_now()
+        compaction_state = self._upsert_compaction_state(session, chat_session, summary, rows)
+        summary.metadata_json = json.dumps(
+            _safe_json(summary.metadata_json, {})
+            | {
+                "summary_version": compaction_state.summary_version,
+                "compaction_state_id": compaction_state.id,
+                "next_steps": _safe_json(compaction_state.next_steps_json, []),
+                "compacted_message_count": compaction_state.compacted_message_count,
+                "preserved_recent_turns": compaction_state.preserved_recent_turns,
+            },
+            ensure_ascii=False,
+        )
         return summary
 
     def get_or_build_summary(self, session: Session, chat_session: ChatSession) -> SessionSummary:
@@ -200,13 +381,129 @@ class MemoryGraphService:
             return self.build_session_summary(session, chat_session)
         return summary
 
+    def get_compaction_state(self, session: Session, session_id: str) -> SessionCompactionState | None:
+        return session.exec(select(SessionCompactionState).where(SessionCompactionState.session_id == session_id)).first()
+
+    def get_or_build_compaction_state(self, session: Session, chat_session: ChatSession) -> SessionCompactionState:
+        existing = self.get_compaction_state(session, chat_session.id)
+        if existing is not None:
+            return existing
+        summary = self.get_or_build_summary(session, chat_session)
+        rows = session.exec(select(ChatMessage).where(ChatMessage.session_id == chat_session.id).order_by(ChatMessage.created_at)).all()
+        return self._upsert_compaction_state(session, chat_session, summary, rows)
+
+    def recent_message_tail(self, session: Session, session_id: str, *, limit: int = 6) -> list[dict[str, Any]]:
+        rows = session.exec(
+            select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at.desc()).limit(limit)
+        ).all()
+        return [
+            {
+                "id": row.id,
+                "role": row.role,
+                "content": row.content,
+                "created_at": row.created_at.isoformat(),
+            }
+            for row in reversed(rows)
+        ]
+
+    def build_context_snapshot(
+        self,
+        session: Session,
+        chat_session: ChatSession,
+        *,
+        context_budget: int = 9000,
+    ) -> dict[str, Any]:
+        summary = self.get_or_build_summary(session, chat_session)
+        compaction_state = self.get_or_build_compaction_state(session, chat_session)
+        sections = _safe_json(summary.sections_json, {})
+        recent_tail = self.recent_message_tail(session, chat_session.id, limit=max(compaction_state.preserved_recent_turns, 2))
+        recent_tail_text = "\n".join(f"- {item['role']}: {_truncate(item['content'], 220)}" for item in recent_tail)
+        payload = {
+            "summary": {
+                "current_state": summary.current_state,
+                "sections": sections,
+                "updated_at": summary.updated_at.isoformat(),
+                "summary_path": summary.summary_path,
+            },
+            "compaction_state": {
+                "id": compaction_state.id,
+                "session_id": compaction_state.session_id,
+                "last_compacted_message_id": compaction_state.last_compacted_message_id,
+                "summary_version": compaction_state.summary_version,
+                "next_steps": _safe_json(compaction_state.next_steps_json, []),
+                "preserved_recent_turns": compaction_state.preserved_recent_turns,
+                "compacted_message_count": compaction_state.compacted_message_count,
+                "compacted_at": compaction_state.compacted_at.isoformat(),
+                "metadata": _safe_json(compaction_state.metadata_json, {}),
+            },
+            "recent_tail": recent_tail,
+            "context_text": "\n\n".join(
+                part
+                for part in (
+                    f"Objetivo:\n{sections.get('objective', '')}" if sections.get("objective") else "",
+                    f"Resumo compacto:\n{summary.current_state}" if summary.current_state else "",
+                    f"Decisões:\n{sections.get('decisions', '')}" if sections.get("decisions") else "",
+                    f"Perguntas em aberto:\n{sections.get('open_questions', '')}" if sections.get("open_questions") else "",
+                    f"Próximos passos:\n{sections.get('next_steps', '')}" if sections.get("next_steps") else "",
+                    f"Cauda recente:\n{recent_tail_text}" if recent_tail_text else "",
+                )
+                if part
+            )[:context_budget],
+        }
+        return payload
+
+    def scan_projected_memory_headers(
+        self,
+        session: Session,
+        *,
+        project_id: str | None = None,
+        session_id: str | None = None,
+        scopes: list[str] | None = None,
+        memory_kinds: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        project_slug = self._resolve_project_slug(session, project_id)
+        roots = [self.paths.memdir_global_dir]
+        if project_slug:
+            roots.append(self.project_memdir(project_slug))
+        if session_id:
+            roots.append(self.session_memdir(session_id))
+
+        results: list[dict[str, Any]] = []
+        for root in roots:
+            if not root.exists():
+                continue
+            for path in sorted(root.glob("*.md")):
+                if path.name == "MEMORY.md":
+                    continue
+                frontmatter = _parse_frontmatter(path)
+                scope = str(frontmatter.get("scope") or "")
+                kind = normalize_memory_kind(frontmatter.get("kind"), default=default_memory_kind_for_scope(scope))
+                if scopes and scope not in scopes:
+                    continue
+                if memory_kinds and kind not in memory_kinds:
+                    continue
+                record_id = str(frontmatter.get("id") or path.stem)
+                results.append(
+                    {
+                        "id": record_id,
+                        "title": str(frontmatter.get("title") or path.stem),
+                        "scope": scope,
+                        "memory_kind": kind,
+                        "path": str(path),
+                        "updated_at": str(frontmatter.get("updated_at") or ""),
+                    }
+                )
+        return results
+
     def recall_memories(
         self,
         session: Session,
         *,
         query: str,
         project_id: str | None = None,
+        session_id: str | None = None,
         scopes: list[str] | None = None,
+        memory_kinds: list[str] | None = None,
         limit: int = 6,
     ) -> list[dict[str, Any]]:
         records_statement = select(MemoryRecord).order_by(MemoryRecord.created_at.desc())
@@ -214,9 +511,13 @@ class MemoryGraphService:
         if project_id:
             records_statement = records_statement.where((MemoryRecord.project_id == project_id) | (MemoryRecord.project_id.is_(None)))
             topics_statement = topics_statement.where((MemoryTopic.project_id == project_id) | (MemoryTopic.project_id.is_(None)))
+        if session_id:
+            records_statement = records_statement.where((MemoryRecord.session_id == session_id) | (MemoryRecord.session_id.is_(None)))
         if scopes:
             records_statement = records_statement.where(MemoryRecord.scope.in_(scopes))
             topics_statement = topics_statement.where(MemoryTopic.scope.in_(scopes))
+        if memory_kinds:
+            records_statement = records_statement.where(MemoryRecord.memory_kind.in_(memory_kinds))
 
         records = session.exec(records_statement.limit(80)).all()
         topics = session.exec(topics_statement.limit(40)).all()
@@ -233,6 +534,7 @@ class MemoryGraphService:
                     "kind": "memory_record",
                     "id": record.id,
                     "scope": record.scope,
+                    "memory_kind": record.memory_kind,
                     "title": record.source,
                     "content": record.content,
                     "score": score,
@@ -252,6 +554,7 @@ class MemoryGraphService:
                     "kind": "memory_topic",
                     "id": topic.id,
                     "scope": topic.scope,
+                    "memory_kind": default_memory_kind_for_scope(topic.scope),
                     "title": topic.title,
                     "content": _truncate(topic_text, 1200),
                     "score": score,
@@ -274,6 +577,7 @@ class MemoryGraphService:
         *,
         project_id: str | None,
         scope: str,
+        memory_kind: str | None,
         title: str,
         content: str,
         source: str,
@@ -339,12 +643,15 @@ class MemoryGraphService:
             project_id=project_id,
             topic_id=topic.id,
             scope=scope,
+            memory_kind=normalize_memory_kind(memory_kind, default=default_memory_kind_for_scope(scope)),
             source=source,
             content=content.strip(),
             confidence=0.78,
             metadata_json=json.dumps(payload_metadata, ensure_ascii=False),
         )
         session.add(record)
+        session.flush()
+        self.project_memory_record(session, record, title=title, metadata=payload_metadata)
 
         manifest_payload = {
             "topic_id": topic.id,
@@ -434,6 +741,7 @@ class MemoryGraphService:
 
     def build_resume_payload(self, session: Session, chat_session: ChatSession) -> dict[str, Any]:
         summary = self.get_or_build_summary(session, chat_session)
+        compaction_state = self.get_or_build_compaction_state(session, chat_session)
         transcript = session.exec(select(SessionTranscript).where(SessionTranscript.session_id == chat_session.id)).first()
         messages = session.exec(select(ChatMessage).where(ChatMessage.session_id == chat_session.id).order_by(ChatMessage.created_at.desc())).all()
         return {
@@ -447,6 +755,14 @@ class MemoryGraphService:
                 "sections": json.loads(summary.sections_json or "{}"),
                 "updated_at": summary.updated_at.isoformat(),
                 "summary_path": summary.summary_path,
+            },
+            "compaction_state": {
+                "last_compacted_message_id": compaction_state.last_compacted_message_id,
+                "summary_version": compaction_state.summary_version,
+                "next_steps": _safe_json(compaction_state.next_steps_json, []),
+                "preserved_recent_turns": compaction_state.preserved_recent_turns,
+                "compacted_message_count": compaction_state.compacted_message_count,
+                "compacted_at": compaction_state.compacted_at.isoformat(),
             },
             "transcript": {
                 "storage_path": transcript.storage_path if transcript else str(self.transcript_path(chat_session.id)),
@@ -468,25 +784,72 @@ class MemoryGraphService:
 
     def compact_session(self, session: Session, chat_session: ChatSession) -> dict[str, Any]:
         summary = self.build_session_summary(session, chat_session)
-        transcript_entries = self.list_transcript_messages(chat_session.id)
-        kept = transcript_entries[-80:]
-        compacted_path = self.transcript_path(chat_session.id)
-        compacted_path.write_text("", encoding="utf-8")
-        for item in kept:
-            append_jsonl(compacted_path, item)
-        transcript = session.exec(select(SessionTranscript).where(SessionTranscript.session_id == chat_session.id)).first()
-        if transcript is not None:
-            transcript.message_count = len(kept)
-            transcript.transcript_bytes = compacted_path.stat().st_size if compacted_path.exists() else 0
-            transcript.updated_at = utc_now()
+        rows = session.exec(select(ChatMessage).where(ChatMessage.session_id == chat_session.id).order_by(ChatMessage.created_at)).all()
+        compaction_state = self._upsert_compaction_state(session, chat_session, summary, rows, forced=True)
         return {
             "session_id": chat_session.id,
             "summary_path": summary.summary_path,
-            "kept_messages": len(kept),
-            "transcript_path": str(compacted_path),
+            "kept_messages": compaction_state.preserved_recent_turns,
+            "compacted_from_message_count": compaction_state.compacted_message_count,
+            "transcript_path": str(self.transcript_path(chat_session.id)),
+            "compaction_state": {
+                "id": compaction_state.id,
+                "summary_version": compaction_state.summary_version,
+                "next_steps": _safe_json(compaction_state.next_steps_json, []),
+                "compacted_at": compaction_state.compacted_at.isoformat(),
+            },
         }
 
+    def _upsert_compaction_state(
+        self,
+        session: Session,
+        chat_session: ChatSession,
+        summary: SessionSummary,
+        rows: list[ChatMessage],
+        *,
+        forced: bool = False,
+    ) -> SessionCompactionState:
+        state = self.get_compaction_state(session, chat_session.id)
+        sections = _safe_json(summary.sections_json, {})
+        preserved_recent_turns = 6 if len(rows) > 6 else max(len(rows), 2 if rows else 0)
+        compacted_count = max(len(rows) - preserved_recent_turns, 0)
+        next_steps = [line.lstrip("- ").strip() for line in str(sections.get("next_steps", "")).splitlines() if line.strip()]
+        metadata = {
+            "current_state": summary.current_state,
+            "summary_path": summary.summary_path,
+            "forced": forced,
+        }
+        if state is None:
+            state = SessionCompactionState(
+                session_id=chat_session.id,
+                last_compacted_message_id=summary.last_message_id,
+                summary_version=1,
+                next_steps_json=json.dumps(next_steps, ensure_ascii=False),
+                preserved_recent_turns=preserved_recent_turns or 0,
+                compacted_message_count=compacted_count,
+                compacted_at=utc_now(),
+                metadata_json=json.dumps(metadata, ensure_ascii=False),
+            )
+            session.add(state)
+            session.flush()
+            return state
+
+        previous_message_id = state.last_compacted_message_id
+        state.last_compacted_message_id = summary.last_message_id
+        state.summary_version += 1 if forced or summary.last_message_id != previous_message_id else 0
+        state.next_steps_json = json.dumps(next_steps, ensure_ascii=False)
+        state.preserved_recent_turns = preserved_recent_turns or 0
+        state.compacted_message_count = compacted_count
+        state.compacted_at = utc_now()
+        state.updated_at = utc_now()
+        state.metadata_json = json.dumps(_safe_json(state.metadata_json, {}) | metadata, ensure_ascii=False)
+        session.add(state)
+        return state
+
     def _build_summary_sections(self, chat_session: ChatSession, rows: list[ChatMessage]) -> dict[str, str]:
+        from .session_profile import get_session_profile
+
+        profile = get_session_profile(chat_session)
         first_user = next((row.content for row in rows if row.role == "user"), "")
         last_user = next((row.content for row in reversed(rows) if row.role == "user"), "")
         last_assistant = next((row.content for row in reversed(rows) if row.role == "assistant"), "")
@@ -494,6 +857,9 @@ class MemoryGraphService:
         commands = []
         errors = []
         worklog = []
+        questions = []
+        decisions = []
+        next_steps = []
         for row in rows[-20:]:
             snippet_tokens = _extract_code_tokens(row.content)
             if snippet_tokens:
@@ -505,26 +871,44 @@ class MemoryGraphService:
                 lowered = stripped.lower()
                 if any(term in lowered for term in ("erro", "falha", "failed", "exception", "traceback")):
                     errors.append(stripped)
+                if stripped.endswith("?") and stripped not in questions:
+                    questions.append(stripped)
+                if any(term in lowered for term in ("decisão", "decisao", "vamos", "iremos", "definido", "aprovado", "deixar", "adiar")):
+                    decisions.append(stripped)
+                if any(term in lowered for term in ("próximo", "proximo", "seguir", "implementar", "testar", "validar", "documentar")):
+                    next_steps.append(stripped)
             worklog.append(f"- {row.role}: {_truncate(row.content, 120)}")
 
         current_state = _truncate(last_user or last_assistant or chat_session.title, 240)
+        objective = profile.get("objective") or first_user or chat_session.title
+        recent_failures = "\n".join(f"- {item}" for item in errors[:8]) or "- Sem falhas relevantes registradas."
+        planned_steps = "\n".join(f"- {item}" for item in next_steps[:8]) or "- Consolidar próximos passos a partir do último bloco da conversa."
         return {
+            "objective": _truncate(str(objective), 320),
             "current_state": current_state,
             "task_specification": _truncate(first_user or chat_session.title, 420),
+            "decisions": "\n".join(f"- {item}" for item in decisions[:8]) or "- Nenhuma decisão explícita consolidada ainda.",
+            "open_questions": "\n".join(f"- {item}" for item in questions[:8]) or "- Sem perguntas em aberto registradas.",
+            "next_steps": planned_steps,
             "files_and_functions": "\n".join(f"- {item}" for item in snippets[:12]) or "- Nenhum arquivo destacado ainda.",
             "workflow": "\n".join(f"- {item}" for item in commands[:10]) or "- Fluxo ainda sem comandos recorrentes.",
-            "errors_and_corrections": "\n".join(f"- {item}" for item in errors[:8]) or "- Sem erros relevantes registrados.",
+            "errors_and_corrections": recent_failures,
+            "recent_failures": recent_failures,
             "key_results": _truncate(last_assistant or "Sem resposta consolidada ainda.", 600),
             "worklog": "\n".join(worklog[-12:]) or "- Sessão recém-criada.",
         }
 
     def _render_summary_markdown(self, chat_session: ChatSession, sections: dict[str, str]) -> str:
         labels = {
+            "objective": "Objective",
             "current_state": "Current State",
             "task_specification": "Task Specification",
+            "decisions": "Decisions",
+            "open_questions": "Open Questions",
+            "next_steps": "Next Steps",
             "files_and_functions": "Files and Functions",
             "workflow": "Workflow",
-            "errors_and_corrections": "Errors & Corrections",
+            "recent_failures": "Recent Failures",
             "key_results": "Key Results",
             "worklog": "Worklog",
         }

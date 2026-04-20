@@ -12,6 +12,7 @@ from rag.graph import RagWorkflow
 from .config import OrquestraSettings
 from .gateway import GatewayProvider
 from .memory_graph import MemoryGraphService
+from .memory_recall import MemoryRecallService
 from .models import (
     JobRecord,
     MemoryManifestEntry,
@@ -19,12 +20,17 @@ from .models import (
     MemoryReviewCandidate,
     MemoryTopic,
     ModelArtifact,
+    PlannerSnapshot,
     Project,
     ProjectDeployment,
     ProviderProfile,
+    SessionCompactionState,
     SessionSummary,
+    SessionTask,
     SessionTranscript,
     TrainingCandidate,
+    WorkflowRun,
+    WorkflowStepRun,
     WorkspaceAsset,
     WorkspaceDerivative,
     WorkspaceInsight,
@@ -169,6 +175,11 @@ class RagQueryOptions:
     include_workspace: bool = True
     include_sources: bool = True
     max_context_chars: int = 9000
+    compaction_enabled: bool = True
+    planner_enabled: bool = True
+    task_context_enabled: bool = True
+    memory_selector_mode: str = "hybrid"
+    context_budget: int | None = None
 
 
 class LocalRagEngine:
@@ -176,24 +187,40 @@ class LocalRagEngine:
         self.settings = settings
         self.paths = RagPaths.load(settings.workspace_root)
         self.memory_graph = MemoryGraphService(settings)
+        self.memory_recall = MemoryRecallService(settings)
 
     def query(self, session: Session, options: RagQueryOptions, *, project_id: str | None = None) -> dict[str, Any]:
         rag_memory_payload: dict[str, Any] = {"items": [], "status": "disabled", "collection_name": "orquestra_memory_v1"}
         external_memory_context = ""
+        session_snapshot: dict[str, Any] | None = None
         if options.memory_enabled:
-            rag_memory = RagMemoryService(self.settings)
-            rag_memory_payload = rag_memory.recall(
-                options.question,
-                session=session,
+            rag_memory_payload = self.memory_recall.recall(
+                session,
+                query=options.question,
                 project_id=project_id,
                 session_id=options.session_id,
                 scopes=options.memory_scopes or None,
                 limit=6,
             )
-            external_memory_context = rag_memory.format_context(
+            external_memory_context = self.memory_recall.format_context(
                 rag_memory_payload.get("items", []),
                 max_chars=min(max(options.max_context_chars, 1000), 9000),
             )
+        if options.session_id:
+            from .models import ChatSession
+
+            chat_session = session.get(ChatSession, options.session_id)
+            if chat_session is not None:
+                session_snapshot = self.memory_graph.build_context_snapshot(
+                    session,
+                    chat_session,
+                    context_budget=options.context_budget or options.max_context_chars,
+                )
+                snapshot_text = session_snapshot.get("context_text", "")
+                if snapshot_text:
+                    external_memory_context = "\n\n".join(
+                        part for part in (snapshot_text, external_memory_context) if part
+                    )
         workflow = RagWorkflow(self.paths, mock_llm=options.mock_llm, provider_id=options.provider_id)
         result = workflow.invoke(
             question=options.question,
@@ -207,6 +234,7 @@ class LocalRagEngine:
             external_memory_context=external_memory_context,
         )
         result["rag_memory"] = rag_memory_payload
+        result["session_snapshot"] = session_snapshot
         if options.remember and options.session_id and result.get("answer"):
             self.memory_graph.create_training_candidate(
                 session,
@@ -265,6 +293,7 @@ def memory_record_to_dict(record: MemoryRecord) -> dict[str, Any]:
         "session_id": record.session_id,
         "topic_id": record.topic_id,
         "scope": record.scope,
+        "memory_kind": record.memory_kind,
         "source": record.source,
         "content": record.content,
         "confidence": record.confidence,
@@ -281,6 +310,7 @@ def memory_review_candidate_to_dict(candidate: MemoryReviewCandidate) -> dict[st
         "project_id": candidate.project_id,
         "session_id": candidate.session_id,
         "scope": candidate.scope,
+        "memory_kind": candidate.memory_kind,
         "title": candidate.title,
         "content": candidate.content,
         "rationale": candidate.rationale,
@@ -340,16 +370,127 @@ def session_transcript_to_dict(item: SessionTranscript) -> dict[str, Any]:
 
 
 def session_summary_to_dict(item: SessionSummary) -> dict[str, Any]:
+    sections = json.loads(item.sections_json or "{}")
+    metadata = json.loads(item.metadata_json or "{}")
     return {
         "id": item.id,
         "session_id": item.session_id,
         "summary_path": item.summary_path,
         "current_state": item.current_state,
-        "sections": json.loads(item.sections_json or "{}"),
+        "sections": sections,
+        "objective": sections.get("objective", ""),
+        "decisions": sections.get("decisions", ""),
+        "open_questions": sections.get("open_questions", ""),
+        "next_steps": sections.get("next_steps", ""),
+        "relevant_files": [
+            line.lstrip("- ").strip()
+            for line in str(sections.get("files_and_functions", "")).splitlines()
+            if line.strip() and "Nenhum" not in line
+        ],
+        "commands_run": [
+            line.lstrip("- ").strip()
+            for line in str(sections.get("workflow", "")).splitlines()
+            if line.strip() and "Fluxo ainda" not in line
+        ],
+        "errors_and_fixes": [
+            line.lstrip("- ").strip()
+            for line in str(sections.get("recent_failures", sections.get("errors_and_corrections", ""))).splitlines()
+            if line.strip() and "Sem falhas" not in line and "Sem erros" not in line
+        ],
+        "worklog": [
+            line.lstrip("- ").strip()
+            for line in str(sections.get("worklog", "")).splitlines()
+            if line.strip()
+        ],
+        "compacted_from_message_count": int(metadata.get("compacted_message_count", 0) or 0),
         "last_message_id": item.last_message_id,
+        "metadata": metadata,
+        "created_at": item.created_at.isoformat(),
+        "updated_at": item.updated_at.isoformat(),
+    }
+
+
+def compaction_state_to_dict(item: SessionCompactionState) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "session_id": item.session_id,
+        "last_compacted_message_id": item.last_compacted_message_id,
+        "summary_version": item.summary_version,
+        "next_steps": json.loads(item.next_steps_json or "[]"),
+        "preserved_recent_turns": item.preserved_recent_turns,
+        "compacted_message_count": item.compacted_message_count,
+        "compacted_at": item.compacted_at.isoformat(),
         "metadata": json.loads(item.metadata_json or "{}"),
         "created_at": item.created_at.isoformat(),
         "updated_at": item.updated_at.isoformat(),
+    }
+
+
+def planner_snapshot_to_dict(item: PlannerSnapshot) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "session_id": item.session_id,
+        "objective": item.objective,
+        "strategy": item.strategy,
+        "next_steps": json.loads(item.next_steps_json or "[]"),
+        "risks": json.loads(item.risks_json or "[]"),
+        "metadata": json.loads(item.metadata_json or "{}"),
+        "last_planned_at": item.last_planned_at.isoformat(),
+        "created_at": item.created_at.isoformat(),
+        "updated_at": item.updated_at.isoformat(),
+    }
+
+
+def session_task_to_dict(item: SessionTask) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "session_id": item.session_id,
+        "subject": item.subject,
+        "description": item.description,
+        "active_form": item.active_form,
+        "status": item.status,
+        "owner": item.owner,
+        "blocked_by": json.loads(item.blocked_by_json or "[]"),
+        "blocks": json.loads(item.blocks_json or "[]"),
+        "position": item.position,
+        "metadata": json.loads(item.metadata_json or "{}"),
+        "created_at": item.created_at.isoformat(),
+        "updated_at": item.updated_at.isoformat(),
+    }
+
+
+def workflow_step_run_to_dict(item: WorkflowStepRun) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "run_id": item.run_id,
+        "step_index": item.step_index,
+        "step_type": item.step_type,
+        "label": item.label,
+        "status": item.status,
+        "input": json.loads(item.input_json or "{}"),
+        "output": json.loads(item.output_json or "{}"),
+        "metadata": json.loads(item.metadata_json or "{}"),
+        "started_at": item.started_at.isoformat() if item.started_at else None,
+        "finished_at": item.finished_at.isoformat() if item.finished_at else None,
+    }
+
+
+def workflow_run_to_dict(item: WorkflowRun, *, steps: list[WorkflowStepRun] | None = None) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "session_id": item.session_id,
+        "task_id": item.task_id,
+        "workflow_name": item.workflow_name,
+        "status": item.status,
+        "summary": item.summary,
+        "log_path": item.log_path,
+        "output_path": item.output_path,
+        "progress": item.progress,
+        "cancel_requested": item.cancel_requested,
+        "metadata": json.loads(item.metadata_json or "{}"),
+        "started_at": item.started_at.isoformat(),
+        "finished_at": item.finished_at.isoformat() if item.finished_at else None,
+        "steps": [workflow_step_run_to_dict(step) for step in (steps or [])],
     }
 
 

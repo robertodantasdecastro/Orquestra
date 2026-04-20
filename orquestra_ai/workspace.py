@@ -410,6 +410,7 @@ class WorkspaceService:
         record = MemoryRecord(
             project_id=project_id,
             scope=scope,
+            memory_kind="reference",
             source=f"{source}:{asset.relative_path}",
             content=f"Arquivo {asset.relative_path} ({asset.asset_kind}): {asset.summary_excerpt or asset.title}",
             confidence=0.69,

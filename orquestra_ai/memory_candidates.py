@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlmodel import Session, select
 
+from .memory_types import default_memory_kind_for_preset
 from .models import ChatMessage, ChatSession, MemoryReviewCandidate
 
 
@@ -60,6 +61,7 @@ class MemoryCandidateExtractor:
 
         preset = str(profile.get("preset") or "assistant")
         scope = PRESET_SCOPE.get(preset, "session_memory")
+        memory_kind = default_memory_kind_for_preset(preset)
         objective = str(profile.get("objective") or "")
         title_seed = _truncate(user_message.content, 64) or "Interacao de chat"
         source_ids = [user_message.id, assistant_message.id]
@@ -74,6 +76,7 @@ class MemoryCandidateExtractor:
             project_id=chat_session.project_id,
             session_id=chat_session.id,
             scope=scope,
+            memory_kind=memory_kind,
             title=f"{preset}: {title_seed}",
             content=content,
             rationale=(
@@ -87,6 +90,7 @@ class MemoryCandidateExtractor:
             metadata_json=json.dumps(
                 {
                     "preset": preset,
+                    "memory_kind": memory_kind,
                     "objective": objective,
                     "interaction_key": interaction_key,
                     "review_required": True,
