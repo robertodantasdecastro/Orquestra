@@ -6,6 +6,8 @@ import App from "./App";
 
 const SESSION_ID = "session-1";
 const WORKFLOW_ID = "workflow-1";
+const TASK_ID = "task-1";
+const TASK_DEP_ID = "task-2";
 
 function jsonResponse(payload: unknown) {
   return Promise.resolve(
@@ -68,17 +70,23 @@ function mockApi(url: string) {
           {
             id: WORKFLOW_ID,
             session_id: SESSION_ID,
-            task_id: null,
+            task_id: TASK_ID,
             workflow_name: "session-validation",
-            status: "running",
+            status: "interrupted",
             summary: "Executar validação local",
             log_path: "/tmp/workflow.log",
             output_path: "/tmp/workflow.json",
             progress: 0.5,
             cancel_requested: false,
-            metadata: {},
+            metadata: { recovered_after_restart: true },
             started_at: new Date().toISOString(),
-            finished_at: null,
+            finished_at: new Date().toISOString(),
+            output_exists: true,
+            output_preview: {
+              status: "interrupted",
+              recovered: true,
+              note: "resume from artifact"
+            },
             steps: []
           }
         ],
@@ -147,17 +155,23 @@ function mockApi(url: string) {
           {
             id: WORKFLOW_ID,
             session_id: SESSION_ID,
-            task_id: null,
+            task_id: TASK_ID,
             workflow_name: "session-validation",
-            status: "running",
+            status: "interrupted",
             summary: "Executar validação local",
             log_path: "/tmp/workflow.log",
             output_path: "/tmp/workflow.json",
             progress: 0.5,
             cancel_requested: false,
-            metadata: {},
+            metadata: { recovered_after_restart: true },
             started_at: new Date().toISOString(),
-            finished_at: null,
+            finished_at: new Date().toISOString(),
+            output_exists: true,
+            output_preview: {
+              status: "interrupted",
+              recovered: true,
+              note: "resume from artifact"
+            },
             steps: []
           }
         ],
@@ -288,16 +302,31 @@ function mockApi(url: string) {
       },
       tasks: [
         {
-          id: "task-1",
+          id: TASK_ID,
           session_id: SESSION_ID,
           subject: "Validar planner",
           description: "Checar sincronização entre resumo e tasks.",
           active_form: "Validar planner",
           status: "pending",
           owner: "orquestra",
-          blocked_by: [],
+          blocked_by: [TASK_DEP_ID],
           blocks: [],
           position: 0,
+          metadata: {},
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        {
+          id: TASK_DEP_ID,
+          session_id: SESSION_ID,
+          subject: "Preparar memória base",
+          description: "Organizar fatos e referências antes do workflow.",
+          active_form: "Preparar memória base",
+          status: "completed",
+          owner: "orquestra",
+          blocked_by: [],
+          blocks: [TASK_ID],
+          position: 1,
           metadata: {},
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
@@ -310,18 +339,25 @@ function mockApi(url: string) {
     return jsonResponse({
       id: WORKFLOW_ID,
       session_id: SESSION_ID,
-      task_id: null,
+      task_id: TASK_ID,
       workflow_name: "session-validation",
-      status: "running",
+      status: "interrupted",
       summary: "Executar validação local",
       log_path: "/tmp/workflow.log",
       output_path: "/tmp/workflow.json",
       progress: 0.5,
       cancel_requested: false,
-      metadata: {},
+      metadata: { recovered_after_restart: true },
       started_at: new Date().toISOString(),
-      finished_at: null,
+      finished_at: new Date().toISOString(),
       log_tail: "[workflow] step=0 status=succeeded",
+      output_exists: true,
+      output_preview: {
+        status: "interrupted",
+        recovered: true,
+        note: "resume from artifact",
+        steps: [{ step: "Git diff", output: { exit_code: 0 } }]
+      },
       steps: [
         {
           id: "step-1",
@@ -329,9 +365,9 @@ function mockApi(url: string) {
           step_index: 0,
           step_type: "shell_safe",
           label: "Git diff",
-          status: "succeeded",
+          status: "interrupted",
           input: {},
-          output: {},
+          output: { exit_code: 0, log_path: "/tmp/workflow-step.log" },
           metadata: {}
         }
       ]
@@ -362,14 +398,21 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("Compactar contexto")).toBeInTheDocument());
     expect(screen.getByText("Planner")).toBeInTheDocument();
     expect(screen.getAllByText("Validar planner").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Preparar memória base").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Bloqueada por:/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Bloqueia:/i).length).toBeGreaterThan(0);
   });
 
-  it("mostra workflows no Execution Center", async () => {
+  it("mostra workflows, artefatos e restart recovery no Execution Center", async () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Execution Center/i }));
 
     await waitFor(() => expect(screen.getByText("Execução multi-step")).toBeInTheDocument());
     expect(screen.getAllByText("session-validation").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/task:Validar planner/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("/tmp/workflow.json").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Interrompido e recuperado após restart").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/resume from artifact/i).length).toBeGreaterThan(0);
   });
 });

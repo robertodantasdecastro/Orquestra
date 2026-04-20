@@ -1,33 +1,34 @@
 # Orquestra Continuity
 
 - Branch atual: `codex/orquestra-paridade-claudecodes-v1`
-- Ultimo commit: `04f35dd`
-- Etapa concluida: `Etapa 3 concluida`
-- Estado do worktree: `Pronto para checkpoint Git da Etapa 3`
+- Ultimo commit: `1611e72`
+- Etapa concluida: `Etapa 4 concluida`
+- Estado do worktree: `Pronto para checkpoint Git da Etapa 4`
 - Validacoes executadas:
-  - `source .venv/bin/activate && PYTHONPATH=. pytest -q tests/test_workflow_engine.py`
+  - `source .venv/bin/activate && PYTHONPATH=. pytest -q tests/test_memory_hybrid.py tests/test_compaction_planner.py tests/test_workflow_engine.py`
   - `cd orquestra_web && ./node_modules/.bin/vitest run --environment jsdom`
   - `cd orquestra_web && ./node_modules/.bin/tsc -b`
-  - `smoke manual Stage 3: workflow feliz, falha intermediaria com saida parcial e cancelamento`
+  - `./scripts/validate_orquestra.sh`
   - `git diff --check`
 - Pendencias abertas:
-  - adicionar testes dedicados para cancelamento, restart recovery e falha parcial do workflow
-  - cobrir `auto compact`, fallback sem Chroma/embeddings e dependencias do planner
-  - expandir testes de UI para planner com dependencias e `Execution Center` com artefatos
-- Proxima acao exata: `Implementar a Etapa 4: ampliar a suite de testes backend/UI, rodar validate_orquestra.sh e criar novo checkpoint`
+  - migrar `@app.on_event` para `lifespan` no FastAPI
+  - alinhar documentação final das flags públicas, validação e protocolo de retomada
+  - fechar o checkpoint final com resumo executivo e branch limpa
+- Proxima acao exata: `Implementar a Etapa 5: trocar startup/shutdown por lifespan, atualizar docs/README/continuidade operacional, validar tudo e criar checkpoint final`
 - Arquivos principais tocados:
-  - `orquestra_ai/workflow_engine.py`
-  - `orquestra_web/src/App.tsx`
-  - `orquestra_web/src/api.ts`
+  - `tests/test_memory_hybrid.py`
+  - `tests/test_compaction_planner.py`
+  - `tests/test_workflow_engine.py`
+  - `orquestra_web/src/App.test.tsx`
   - `.codex/memory/orquestra-continuity.md`
 - O que mudou:
-  - `Execution Center` agora exibe status final humanizado, vinculo com task/sessao, `log_path`, `output_path` e `output_preview`
-  - o backend do workflow persiste artefatos estruturados para sucesso, falha parcial e cancelamento
-  - o detalhe do workflow mostra recuperacao apos restart quando `recovered_after_restart` estiver presente no metadata
+  - a suite backend agora cobre fallback sem vetor, `auto compact`, dependencias do planner, cancelamento, falha parcial e recovery de workflow
+  - a suite de UI cobre planner com dependencias e `Execution Center` com artefato, task vinculada e restart recovery
+  - `validate_orquestra.sh` permaneceu verde com backend, frontend, build web, `cargo check`, pacote macOS e smoke de API
 - O que validar:
-  - `output_preview.status` coerente em `succeeded`, `failed` e `cancelled`
-  - detalhes do run mostram artefato e contexto task/sessao no frontend
-  - restart recovery continua aparecendo visualmente quando houver run interrompido
+  - remover warnings de `on_event` com migração para `lifespan`
+  - conferir se README e docs refletem o comportamento final das flags e do handoff
+  - repetir validação oficial após o hardening final
 - Caminhos de logs/artefatos:
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.log`
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.json`
