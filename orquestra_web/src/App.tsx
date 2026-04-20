@@ -248,6 +248,7 @@ export default function App() {
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
   const [selectedWorkflow, setSelectedWorkflow] = useState<WorkflowRun | null>(null);
+  const [taskRelationDrafts, setTaskRelationDrafts] = useState<Record<string, { blockedBy: string; blocks: string }>>({});
   const [opsActionBusyId, setOpsActionBusyId] = useState("");
   const [statusLine, setStatusLine] = useState("Orquestra pronto para operar em modo local-first.");
 
@@ -261,6 +262,7 @@ export default function App() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null;
   const selectedAsset = workspaceAssets.find((asset) => asset.id === selectedAssetId) ?? null;
   const currentView = views.find((item) => item.id === view)!;
+  const sessionTaskMap = useMemo(() => new Map(sessionTasks.map((task) => [task.id, task])), [sessionTasks]);
 
   const servicesByCategory = useMemo(() => {
     const groups = new Map<string, Array<OpsDashboard["services"][number]>>();
@@ -345,6 +347,7 @@ export default function App() {
       setSessionCompaction(null);
       setPlannerSnapshot(null);
       setSessionTasks([]);
+      setTaskRelationDrafts({});
       setResumePayload(null);
       setSessionProfile(null);
       setMemoryCandidates([]);
@@ -366,6 +369,7 @@ export default function App() {
     setMemoryCandidates(candidatePayload);
     setPlannerSnapshot(plannerPayload.snapshot);
     setSessionTasks(plannerPayload.tasks);
+    setTaskRelationDrafts({});
   }
 
   async function refreshWorkspace(scanId: string) {
@@ -705,6 +709,63 @@ export default function App() {
     }
   }
 
+  function handleTaskRelationDraft(taskId: string, relation: "blockedBy" | "blocks", value: string) {
+    setTaskRelationDrafts((current) => ({
+      ...current,
+      [taskId]: {
+        blockedBy: current[taskId]?.blockedBy ?? "",
+        blocks: current[taskId]?.blocks ?? "",
+        [relation]: value
+      }
+    }));
+  }
+
+  async function handleTaskRelation(task: SessionTask, relation: "blocked_by" | "blocks") {
+    if (!selectedSessionId) return;
+    const draft = taskRelationDrafts[task.id];
+    const relatedTaskId = relation === "blocked_by" ? draft?.blockedBy : draft?.blocks;
+    if (!relatedTaskId || relatedTaskId === task.id) return;
+    const relatedTask = sessionTasks.find((item) => item.id === relatedTaskId);
+    if (!relatedTask) return;
+
+    try {
+      const nextPrimary = relation === "blocked_by"
+        ? await patchSessionTask(selectedSessionId, task.id, {
+            blocked_by: Array.from(new Set([...(task.blocked_by ?? []), relatedTaskId])),
+            metadata: { updated_from: "assistant_planner_relations" }
+          })
+        : await patchSessionTask(selectedSessionId, task.id, {
+            blocks: Array.from(new Set([...(task.blocks ?? []), relatedTaskId])),
+            metadata: { updated_from: "assistant_planner_relations" }
+          });
+
+      const nextSecondary = relation === "blocked_by"
+        ? await patchSessionTask(selectedSessionId, relatedTask.id, {
+            blocks: Array.from(new Set([...(relatedTask.blocks ?? []), task.id])),
+            metadata: { updated_from: "assistant_planner_relations" }
+          })
+        : await patchSessionTask(selectedSessionId, relatedTask.id, {
+            blocked_by: Array.from(new Set([...(relatedTask.blocked_by ?? []), task.id])),
+            metadata: { updated_from: "assistant_planner_relations" }
+          });
+
+      setSessionTasks((current) =>
+        current.map((item) => {
+          if (item.id === nextPrimary.id) return nextPrimary;
+          if (item.id === nextSecondary.id) return nextSecondary;
+          return item;
+        })
+      );
+      setTaskRelationDrafts((current) => ({
+        ...current,
+        [task.id]: { blockedBy: "", blocks: "" }
+      }));
+      setStatusLine(`Dependência registrada entre ${task.subject} e ${relatedTask.subject}.`);
+    } catch (error) {
+      setStatusLine(`Falha ao registrar dependência: ${String(error)}`);
+    }
+  }
+
   async function handleAddNextTask() {
     if (!selectedSessionId || !chatPrompt.trim()) return;
     try {
@@ -739,6 +800,39 @@ export default function App() {
       await refreshGlobal(selectedProjectId);
     } catch (error) {
       setStatusLine(`Falha ao iniciar workflow: ${String(error)}`);
+    }
+  }
+
+  async function handleStartTaskWorkflow(task: SessionTask) {
+    if (!selectedSessionId) return;
+    try {
+      const payload = await createWorkflowRun({
+        session_id: selectedSessionId,
+        task_id: task.id,
+        workflow_name: "task-linked-validation",
+        summary: `Executar workflow local vinculado à tarefa: ${task.subject}`,
+        steps: [
+          { step_type: "shell_safe", label: "Git diff check", payload: { command: "git diff --check" } },
+          {
+            step_type: "rag_query",
+            label: "Task context",
+            payload: {
+              question: `Qual é o próximo passo operacional para a tarefa: ${task.subject}?`,
+              session_id: selectedSessionId,
+              mock_llm: true,
+              memory_enabled: true,
+              planner_enabled: true,
+              task_context_enabled: true
+            }
+          }
+        ]
+      });
+      setSelectedWorkflowId(payload.id);
+      setSelectedWorkflow(payload);
+      setStatusLine(`Workflow iniciado para a tarefa ${task.subject}.`);
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao iniciar workflow da tarefa: ${String(error)}`);
     }
   }
 
@@ -1541,6 +1635,7 @@ export default function App() {
                         >
                           <strong>{run.workflow_name}</strong>
                           <span>{run.status}</span>
+                          <small>{run.task_id ? `task:${sessionTaskMap.get(run.task_id)?.subject || run.task_id.slice(0, 8)}` : "sem task"}</small>
                           <small>{Math.round((run.progress ?? 0) * 100)}%</small>
                         </button>
                       ))}
@@ -2011,6 +2106,28 @@ export default function App() {
                             <h3>{sessionTasks.length} tarefas</h3>
                           </div>
                         </div>
+                        <article className="memory-card candidate-card">
+                          <strong>{plannerSnapshot?.objective || sessionProfile?.objective || "Objetivo não definido"}</strong>
+                          <span>{plannerSnapshot?.strategy || "Estratégia ainda não consolidada."}</span>
+                          <p>{plannerSnapshot?.metadata?.source ? `Fonte: ${String(plannerSnapshot.metadata.source)}` : "Snapshot operacional do planner."}</p>
+                          <div className="context-list">
+                            <span><strong>Próximos passos:</strong> {plannerSnapshot?.next_steps.length ?? 0}</span>
+                            <span><strong>Riscos:</strong> {plannerSnapshot?.risks.length ?? 0}</span>
+                            <span><strong>Último rebuild:</strong> {plannerSnapshot?.last_planned_at ? formatDate(plannerSnapshot.last_planned_at) : "nunca"}</span>
+                          </div>
+                          <div className="token-list">
+                            {(plannerSnapshot?.next_steps ?? []).map((step) => (
+                              <span key={step}>{step}</span>
+                            ))}
+                          </div>
+                          {(plannerSnapshot?.risks ?? []).length > 0 ? (
+                            <div className="context-list">
+                              {(plannerSnapshot?.risks ?? []).map((risk) => (
+                                <span key={risk}><strong>Risco:</strong> {risk}</span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </article>
                         {sessionTasks.length === 0 ? (
                           <div className="empty-state compact">
                             <h4>Planner vazio.</h4>
@@ -2022,7 +2139,61 @@ export default function App() {
                               <strong>{task.subject}</strong>
                               <span>{task.status} · {task.owner}</span>
                               <p>{task.active_form || task.description}</p>
+                              <div className="context-list">
+                                <span>
+                                  <strong>Bloqueada por:</strong>{" "}
+                                  {task.blocked_by.length
+                                    ? task.blocked_by.map((item) => sessionTaskMap.get(item)?.subject || item.slice(0, 8)).join(" • ")
+                                    : "ninguém"}
+                                </span>
+                                <span>
+                                  <strong>Bloqueia:</strong>{" "}
+                                  {task.blocks.length
+                                    ? task.blocks.map((item) => sessionTaskMap.get(item)?.subject || item.slice(0, 8)).join(" • ")
+                                    : "ninguém"}
+                                </span>
+                              </div>
+                              <div className="split-form">
+                                <label>
+                                  Bloqueada por
+                                  <select
+                                    value={taskRelationDrafts[task.id]?.blockedBy ?? ""}
+                                    onChange={(event) => handleTaskRelationDraft(task.id, "blockedBy", event.target.value)}
+                                  >
+                                    <option value="">Selecione</option>
+                                    {sessionTasks
+                                      .filter((candidate) => candidate.id !== task.id)
+                                      .map((candidate) => (
+                                        <option key={candidate.id} value={candidate.id}>
+                                          {candidate.subject}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </label>
+                                <label>
+                                  Bloqueia
+                                  <select
+                                    value={taskRelationDrafts[task.id]?.blocks ?? ""}
+                                    onChange={(event) => handleTaskRelationDraft(task.id, "blocks", event.target.value)}
+                                  >
+                                    <option value="">Selecione</option>
+                                    {sessionTasks
+                                      .filter((candidate) => candidate.id !== task.id)
+                                      .map((candidate) => (
+                                        <option key={candidate.id} value={candidate.id}>
+                                          {candidate.subject}
+                                        </option>
+                                      ))}
+                                  </select>
+                                </label>
+                              </div>
                               <div className="composer-actions">
+                                <button type="button" className="ghost-button" onClick={() => handleTaskRelation(task, "blocked_by")}>
+                                  Salvar bloqueio
+                                </button>
+                                <button type="button" className="ghost-button" onClick={() => handleTaskRelation(task, "blocks")}>
+                                  Salvar dependente
+                                </button>
                                 <button type="button" className="ghost-button" onClick={() => handleTaskStatus(task, "blocked")}>
                                   Bloquear
                                 </button>
@@ -2031,6 +2202,9 @@ export default function App() {
                                 </button>
                                 <button type="button" className="primary-button" onClick={() => handleTaskStatus(task, "completed")}>
                                   Concluir
+                                </button>
+                                <button type="button" className="ghost-button" onClick={() => handleStartTaskWorkflow(task)}>
+                                  Rodar workflow
                                 </button>
                               </div>
                             </article>
@@ -2344,6 +2518,8 @@ export default function App() {
                 <span><strong>Status:</strong> {selectedWorkflow?.status || "idle"}</span>
                 <span><strong>Progresso:</strong> {Math.round((selectedWorkflow?.progress ?? 0) * 100)}%</span>
                 <span><strong>Passos:</strong> {selectedWorkflow?.steps.length ?? 0}</span>
+                <span><strong>Tarefa:</strong> {selectedWorkflow?.task_id ? sessionTaskMap.get(selectedWorkflow.task_id)?.subject || selectedWorkflow.task_id : "sem vínculo"}</span>
+                <span><strong>Sessão:</strong> {selectedWorkflow?.session_id || "sem vínculo"}</span>
               </div>
               <pre className="preview-text compact terminal">
                 {selectedWorkflow?.log_tail || "Os logs dos workflows multi-step aparecem aqui."}

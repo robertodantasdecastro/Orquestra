@@ -1,24 +1,20 @@
 # Orquestra Continuity
 
 - Branch atual: `codex/orquestra-paridade-claudecodes-v1`
-- Ultimo commit: `5ac998f`
-- Etapa concluida: `Etapa 1 concluida`
-- Estado do worktree: `Pronto para checkpoint Git da Etapa 1`
+- Ultimo commit: `9f5efe3`
+- Etapa concluida: `Etapa 2 concluida`
+- Estado do worktree: `Pronto para checkpoint Git da Etapa 2`
 - Validacoes executadas:
-  - `source .venv/bin/activate && python -m py_compile orquestra_ai/*.py`
-  - `source .venv/bin/activate && PYTHONPATH=. pytest -q tests/test_memory_hybrid.py tests/test_compaction_planner.py tests/test_workflow_engine.py`
-  - `smoke manual Stage 1: include_workspace + include_sources + memory_selector_mode=lexical`
+  - `cd orquestra_web && ./node_modules/.bin/vitest run --environment jsdom && ./node_modules/.bin/tsc -b`
+  - `smoke manual Stage 2: patch de blocked_by via API do planner`
   - `git diff --check`
 - Pendencias abertas:
-  - expor `blocked_by` e `blocks` na UI do planner
-  - mostrar `next_steps` como bloco operacional no painel lateral
-  - vincular tarefa e workflow na UX
-- Proxima acao exata: `Fechar a Etapa 2 no frontend e na API do planner, validar UI + backend e criar novo checkpoint`
+  - exibir melhor `output_path`, artefatos e vinculo sessao/tarefa no `Execution Center`
+  - mostrar estados finais e saida parcial do workflow com mais clareza
+  - confirmar retomada visual apos restart
+- Proxima acao exata: `Fechar a Etapa 3 no frontend do Execution Center e no detalhamento de workflow, validar workflows e criar novo checkpoint`
 - Arquivos principais tocados:
-  - `orquestra_ai/app.py`
-  - `orquestra_ai/services.py`
-  - `orquestra_ai/workspace.py`
-  - `orquestra_ai/memory_recall.py`
+  - `orquestra_web/src/App.tsx`
   - `.codex/memory/orquestra-continuity.md`
 - Comando de retomada:
   - `Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.`
