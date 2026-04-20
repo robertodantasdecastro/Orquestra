@@ -2,160 +2,132 @@
 
 ![Orquestra AI](assets/brand/orquestra-wordmark.svg)
 
-`Orquestra` e uma plataforma macOS-first para operar IA local e remota em um unico control plane. A aplicacao concentra chat multi-provider, memoria evolutiva, RAG local, leitura multimodal de diretorios, dashboard operacional, registry de modelos e preparacao de jobs de treino em uma superficie web e desktop.
+`Orquestra` e um control plane macOS-first e local-first para operacao de IA. A aplicacao unifica chat multi-provider, memoria persistente, RAG contextual, leitura multimodal de diretorios, planner de sessao, workflows locais multi-step, dashboard operacional e empacotamento desktop/web em uma unica superficie.
 
-## Objetivo
-O objetivo do Orquestra e transformar o Mac em uma central de coordenacao local-first para projetos de IA. Ele deve permitir conversar com modelos locais e remotos, anexar e entender workspaces inteiros, manter continuidade de sessao, consultar conhecimento RAG, acompanhar servicos e preparar evolucao de modelos sem depender implicitamente do antigo repositorio `Local_RAG`.
+## O que o Orquestra entrega hoje
+- `Assistant Workspace` com setup de sessao por objetivo, preset e politicas de memoria/RAG.
+- `Memory Studio` com memoria hibrida, `Memory Inbox`, recall lexical + vetorial e projecao em arquivos.
+- `Workspace Browser` com leitura `inventory-first` e extracao sob demanda.
+- `Execution Center` com providers, jobs, workflows locais, registry e consulta RAG operacional.
+- `Operations Dashboard` e `Process Center` para saude da stack, listeners, processos e artefatos.
+- app desktop macOS com instalador, desinstalador, runtime espelhado e LaunchAgent local.
+
+## Visao geral do produto
+O Orquestra transforma o Mac em uma estacao de coordenacao de projetos de IA. Em vez de depender de um transcript bruto gigante ou de scripts soltos, ele organiza:
+
+- sessao de trabalho com objetivo explicito;
+- memoria duravel aprovada e memoria curta operacional;
+- compactacao persistente para chats longos;
+- tarefas reais da sessao com proximos passos;
+- workflows locais observaveis com logs e artefatos;
+- consulta a fontes locais, workspace e RAG legado sem quebrar o fluxo local.
 
 Principios do projeto:
-- `local-first`: a API, o banco, os artefatos, o MemoryGraph e o workspace multimodal rodam localmente por padrao.
-- `macOS-first`: o fluxo oficial usa app desktop Tauri, LaunchAgent de usuario e instalador/desinstalador em shell.
-- `web + desktop`: a mesma interface React/Vite funciona no navegador e dentro do shell macOS.
-- `provider-agnostic`: os providers passam por um gateway unico, com suporte a LM Studio, OpenAI, Anthropic, DeepSeek, Ollama e LiteLLM.
-- `inventory-first`: diretorios grandes sao inventariados primeiro; extracao e indexacao pesada acontecem sob demanda.
-- `sem segredos no repo`: credenciais ficam fora do Git, usando `.env` local ou mecanismos seguros do macOS.
+- `local-first`: banco, memoria, artefatos, runtime e validacao rodam localmente por padrao.
+- `macOS-first`: a distribuicao oficial atual e app Tauri + scripts de instalacao/desinstalacao.
+- `web + desktop`: a mesma UI React/Vite funciona no navegador e no app.
+- `provider-agnostic`: o gateway suporta LM Studio, OpenAI, Anthropic, DeepSeek, Ollama e LiteLLM.
+- `review-before-promote`: nada vira memoria duravel ou dataset sem aprovacao explicita.
+- `inventory-first`: o workspace inventaria antes; extracao pesada so acontece quando faz sentido.
 
-## Recursos
-### Chat multi-provider
-- Interface unica para conversar com modelos locais e remotos.
-- Nova sessao com setup curto de objetivo, preset operacional e politica de memoria/RAG.
-- Painel lateral `Memoria & RAG` dentro do chat para ajustar objetivo, preset, RAG, workspace e modo dataset sem abandonar a conversa.
-- Providers suportados no catalogo:
-  - `LM Studio`
-  - `OpenAI`
-  - `Anthropic`
-  - `DeepSeek`
-  - `Ollama`
-  - `LiteLLM Proxy`
-- Alternancia de provider/modelo por projeto.
-- Streaming por SSE no backend.
-- Modo mock/local-safe para validar sem depender de API externa.
+## Superficie atual da UI
+As areas oficiais do produto sao:
 
-### MemoryGraph
-- Transcript bruto em JSONL por sessao.
-- Resumo estruturado de sessao separado do transcript.
-- Compactacao persistente de contexto com `SessionCompactionState`, preservando resumo, decisoes, `next_steps`, falhas recentes e cauda curta da conversa.
-- `Session Profile` salvo em `ChatSession.metadata_json`, com `objective`, `preset`, `memory_policy`, `rag_policy` e `persona_config`.
-- Memoria duravel por topicos e escopos.
-- Projecao operacional em arquivos sob `artifacts_root/memorygraph/memdir/global`, `projects/<slug>` e `sessions/<session_id>`.
-- Tipos de memoria suportados: `user`, `feedback`, `project`, `reference`, `persona` e `dataset`.
-- `Memory Inbox` com candidatos revisaveis antes de qualquer promocao duravel.
-- Recall hibrido com shortlist lexical, reforco vetorial em `orquestra_memory_v1` e fallback heuristico.
-- Promocao manual de fatos/contextos para memoria.
-- Training candidates para preparar datasets futuros somente depois de aprovacao explicita.
-- Resume de sessao para retomar continuidade operacional.
+1. `Operations Dashboard`
+2. `Process Center`
+3. `Memory Studio`
+4. `Execution Center`
+5. `Assistant Workspace`
+6. `Workspace Browser`
+7. `Projects`
 
-### Workspace Multimodal
-- Anexo de diretorios inteiros.
-- Inventario recursivo com hash, MIME, extensao, tamanho e caminho relativo.
-- Classificacao de ativos:
-  - `code_text`
-  - `image`
-  - `pdf`
-  - `office`
-  - `audio`
-  - `video`
-  - `binary`
-- Extracao sob demanda:
-  - texto/codigo: leitura textual e indexacao leve;
-  - imagem: metadados e thumbnail;
-  - PDF: texto das paginas iniciais;
-  - Office: `docx`, `xlsx` e `pptx`;
-  - audio: metadados e transcricao opcional via `whisper`;
-  - video: metadados, poster frame opcional via `ffmpeg` e transcricao opcional.
-- Preview e abertura no app padrao do macOS.
-- Promocao de ativos relevantes para memoria.
+Dentro dessas areas, o Orquestra expõe os blocos abaixo.
 
-### RAG local
-- Consulta ao engine RAG embutido.
-- Colecao Chroma `orquestra_memory_v1` para memoria aprovada associada ao RAG.
-- Recall de chat com orcamento pequeno: `summary + recent tail + recalled memory + fontes locais` quando disponiveis.
-- Seletor de contexto `hybrid` com filtros por sessao, projeto, escopo e `memory_kind`.
-- Fallback lexical quando Chroma, embeddings ou colecoes estiverem indisponiveis.
-- Integracao com o gateway multi-provider.
-- Persistencia local de interacoes quando solicitado.
-- Modo mock para smoke tests.
+### Assistant Workspace
+- cria sessoes com `objective`, `preset`, `memory_policy`, `rag_policy` e `persona_config`
+- separa transcript bruto, resumo operacional e estado de compactacao
+- usa `summary + recent tail + recalled memory + workspace/fontes` em vez de transcript integral
+- mostra `Memory Inbox`, resumo, transcript, planner e contexto operacional na mesma tela
+- atualiza `next_steps` reais a partir do planner
 
-### Dashboard operacional
-Web e desktop exibem o mesmo painel com:
-- servicos essenciais;
-- listeners locais;
-- processos em background;
-- sessoes recentes;
-- scans de workspace;
-- memoria e training candidates;
-- candidatos pendentes de revisao no `Memory Inbox`;
-- estado de compactacao da sessao e `next_steps` persistidos;
-- planner hibrido com tarefas reais da sessao;
-- workflows locais multi-step com progresso, logs e cancelamento;
-- providers, conectores, jobs e registry;
-- artefatos de build, app, DMG, instalador e desinstalador;
-- acoes operacionais disparaveis pela UI.
+Presets suportados:
+- `research`
+- `osint`
+- `persona`
+- `assistant`
+- `dataset`
 
-### Planner e execucao local
-- `PlannerSnapshot` persistido por sessao com `objective`, `strategy`, `next_steps` e riscos.
-- `SessionTask` com estados `pending`, `in_progress`, `blocked`, `completed`, `failed` e `cancelled`.
-- `WorkflowRun` e `WorkflowStepRun` para execucao local multi-step.
-- Passos locais suportados na V1: `ops_action`, `rag_query`, `workspace_query`, `workspace_extract`, `memory_review_batch` e `shell_safe`.
-- Retomada apos restart com logs persistidos em arquivo e recuperacao de runs interrompidos.
+### Memory Studio
+- `MemoryRecord`, `MemoryTopic` e `MemoryReviewCandidate`
+- tipos de memoria: `user`, `feedback`, `project`, `reference`, `persona`, `dataset`
+- escopos operacionais: `session_memory`, `episodic_memory`, `semantic_memory`, `workspace_memory`, `persona_memory`, `source_fact`, `training_signal`
+- recall com `memory_selector_mode=hybrid` ou `memory_selector_mode=lexical`
+- projecao em arquivos sob `experiments/orquestra/memorygraph/memdir`
 
-### Train Ops e Registry
-- Catalogo de conectores:
-  - `ec2`
-  - `sagemaker_notebook_job`
-  - `kaggle_kernel`
-  - `databricks_job`
-- Registro de jobs locais/remotos como intencao operacional.
-- Registry de modelos/adapters por projeto.
-- Comparacao simples de benchmarks entre baseline e candidate.
-- Nesta fase, execucao remota real continua adiada; os conectores funcionam como catalogo, readiness e fila local.
+### Workspace Browser
+- anexo de diretorios
+- inventario recursivo com classificacao por ativo
+- extracao sob demanda para `code_text`, `image`, `pdf`, `office`, `audio`, `video` e `binary`
+- preview, abertura no app padrao e promocao de ativos para memoria
 
-### Instalacao macOS
-- Instalador script-first em `scripts/install_orquestra_macos.sh`.
-- Desinstalador em `scripts/uninstall_orquestra_macos.sh`.
-- Build do app Tauri e instalacao em `~/Applications/Orquestra AI.app`.
-- LaunchAgent de usuario para manter a API local disponivel.
-- Runtime espelhado em `~/Library/Application Support/Orquestra/runtime`, evitando depender do caminho do repositorio depois de instalado.
-- Backup automatico do banco local antes de upgrades com sync de runtime.
-- Manifesto de instalacao em `experiments/orquestra/install/install_manifest.json`.
-- Desinstalacao preserva dados por padrao e oferece `--purge-data` quando necessario.
+### Execution Center
+- providers e modelos disponiveis
+- catalogo de conectores e jobs
+- `WorkflowRun` e `WorkflowStepRun`
+- progresso por passo
+- `log_path`, `output_path` e `output_preview`
+- estados finais claros: `succeeded`, `failed`, `cancelled`, `interrupted`
+- recuperacao visual apos restart quando um run interrompido e reclassificado
+- comparacao de registry e consulta RAG operacional
 
-## Estrutura
-- `orquestra_ai/`: backend FastAPI, MemoryGraph, Workspace Multimodal, gateway, registry, operations e jobs.
-- `orquestra_web/`: frontend React/Vite e shell desktop Tauri.
-- `rag/`: engine RAG local integrado ao backend.
-- `training/local/`: utilitarios compartilhados de ingestao e avaliacao.
-- `scripts/`: bootstrap, validacao, API, web, desktop, instalacao e desinstalacao.
-- `assets/brand/`: logo e assinatura visual do Orquestra.
-- `docs/`: instalacao, arquitetura e manual operacional.
+### Operations Dashboard e Process Center
+- saude da API, web, desktop, bundle e artefatos
+- listeners locais
+- processos de background
+- sessoes recentes
+- scans de workspace
+- memoria recente e pendencias do inbox
+- caminhos de runtime e estado de instalacao
 
-## Estado atual
-- Backend, frontend web e shell desktop estao integros no fluxo local.
-- `./scripts/validate_orquestra.sh` e a verificacao automatizada principal.
-- A validacao principal agora executa `pytest`, `vitest`, `tsc -b`, `vite build`, `cargo check` e smoke de API/workflow.
-- O build desktop do Tauri fecha localmente no macOS e gera `.app` + `.dmg`.
-- `./scripts/validate_orquestra_macos_package.sh` valida bundle, DMG, `Info.plist`, scripts e assinatura local/ad-hoc.
-- Chat, memoria, RAG e Workspace Multimodal passam em smoke local.
-- Sessao com objetivo/preset, memoria revisavel, aprovacao de candidato e recall RAG associado estao integrados na V1 local.
-- Sessao longa usa compactacao persistente em vez de transcript integral no prompt.
-- Planner hibrido e tarefas reais ja aparecem no backend e na UI web/desktop.
-- Execution Center exibe workflows locais multi-step com status por passo, log tail, `output_path`, preview de artefato e recuperacao apos restart.
-- Providers reais sao opcionais; a validacao usa modo mock/local-safe.
-- Dashboard operacional, instalador, desinstalador e manual estao documentados.
-- `/api/health` e o dashboard expõem `app_version`, `schema_version`, `schema_target_version`, estado de migração, manifesto e backups recentes.
-- O backend FastAPI usa `lifespan` para bootstrap e shutdown sem warnings de `on_event`.
-- EC2 e demais conectores remotos permanecem para fase posterior.
+## Memoria, RAG, planner e workflow
+Os recursos de maior impacto operacional do Orquestra hoje sao:
 
-## Flags operacionais de contexto
-As flags publicas de `POST /api/chat/stream` e `POST /api/rag/query` agora tem efeito real no backend:
+### Memoria hibrida
+- banco local SQLite como base canônica
+- projecao em arquivos Markdown/metadata no `memdir`
+- colecao `orquestra_memory_v1` para memoria aprovada associada ao RAG
+- fallback heuristico quando vetor/embeddings nao estao disponiveis
 
-- `planner_enabled`: liga/desliga a injecao de `PlannerSnapshot` e contexto operacional de tarefas.
-- `memory_selector_mode`: aceita `hybrid` como padrao e `lexical` como estrategia explicita de selecao.
-- `include_workspace`: controla a secao `Workspace/fontes` na montagem do contexto.
-- `include_sources`: controla a secao `RAG legado` e as fontes locais citadas.
-- `compaction_enabled` + `context_budget`: fazem o prompt usar `summary + recent tail + recalled memory`, em vez do transcript integral.
+### Compactacao de contexto
+- `SessionCompactionState` persistido por sessao
+- separacao entre transcript bruto e snapshot compacto
+- preservacao de `next_steps`, decisoes, worklog e falhas recentes
+- acionamento manual e automatico por `context_budget`
 
-Ordem fixa de contexto:
+### Planner hibrido
+- `PlannerSnapshot` persistido por sessao
+- `SessionTask` com dependencias `blocked_by` e `blocks`
+- tarefas visiveis e editaveis na UI
+- sincronizacao com objetivo e resumo da sessao
+
+### Executor local multi-step
+- passos suportados: `ops_action`, `rag_query`, `workspace_query`, `workspace_extract`, `memory_review_batch`, `shell_safe`
+- cancelamento real
+- saida parcial em falha
+- retomada visual apos restart
+- vinculo opcional entre workflow, sessao e tarefa
+
+## Contratos publicos importantes
+Algumas flags de contexto agora tem comportamento real no backend:
+
+- `planner_enabled`
+- `memory_selector_mode`
+- `include_workspace`
+- `include_sources`
+- `compaction_enabled`
+- `context_budget`
+
+Ordem fixa de montagem de contexto:
 1. perfil da sessao
 2. snapshot compacto
 3. planner
@@ -164,41 +136,14 @@ Ordem fixa de contexto:
 6. RAG legado
 7. mensagem atual
 
-## Checkpoint e retomada
-O protocolo de continuidade padrao do repositório usa:
-
-- `AGENTS.md`
-- `.codex/memory/orquestra-continuity.md`
-- `git log --oneline -5`
-- `git status --short`
-
-Ao fim de cada micro-etapa, o fluxo esperado e:
-
-1. atualizar `.codex/memory/orquestra-continuity.md`
-2. rodar a menor validacao significativa da etapa
-3. rodar `git diff --check`
-4. registrar `git status --short`
-5. criar commit
-6. fazer push da branch de trabalho
-
-Prompt curto recomendado para retomada:
-
-```text
-Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.
-```
-
-## Requisitos
-- macOS
-- `python3`, preferencialmente `python3.12`
-- `node` + `npm`
-- `rustup` + `cargo`
-- opcionais:
-  - `LM Studio`
-  - `ffmpeg`
-  - `ffprobe`
-  - `whisper`
-  - `Ollama`
-  - `LiteLLM Proxy`
+## Estrutura do repositório
+- `orquestra_ai/`: API FastAPI, gateway, memoria, planner, workflows, jobs e runtime
+- `orquestra_web/`: frontend React/Vite e shell desktop Tauri
+- `rag/`: engine RAG integrado ao backend
+- `training/local/`: utilitarios locais de treino/avaliacao
+- `scripts/`: bootstrap, run, validacao, empacotamento, instalacao e desinstalacao
+- `assets/brand/`: logo e wordmark
+- `docs/`: instalacao, manual, arquitetura, memoria/workspace e continuidade
 
 ## Inicio rapido
 ```bash
@@ -207,89 +152,100 @@ cd /caminho/para/Orquestra
 ./scripts/validate_orquestra.sh
 ```
 
-Rodar API:
+Subir a API:
 ```bash
 ./scripts/start_orquestra_api.sh
 ```
 
-Rodar web:
+Subir a UI web:
 ```bash
 ./scripts/start_orquestra_web.sh
 ```
 
-Rodar desktop:
+Subir a stack local:
+```bash
+./scripts/start_orquestra_stack.sh
+```
+
+Abrir o desktop:
 ```bash
 ./scripts/start_orquestra_desktop.sh
 ```
 
-Buildar, abrir e verificar o app desktop:
+Build + verificacao do desktop:
 ```bash
 ./script/build_and_run.sh --verify
 ```
 
-## Instalar no macOS
+## Instalacao no macOS
+Instalar:
 ```bash
-cd /caminho/para/Orquestra
 ./scripts/install_orquestra_macos.sh
 ```
 
-Opcoes:
+Desinstalar:
 ```bash
-./scripts/install_orquestra_macos.sh --skip-build
-./scripts/install_orquestra_macos.sh --no-launch-agent
-./scripts/install_orquestra_macos.sh --no-runtime-sync
-./scripts/install_orquestra_macos.sh --open
-./scripts/install_orquestra_macos.sh --no-wait-api
-./scripts/install_orquestra_macos.sh --skip-package-verify
-./scripts/install_orquestra_macos.sh --install-dir "$HOME/Applications/Orquestra AI.app"
-```
-
-O instalador prepara o ambiente, gera o app desktop, valida o pacote local, instala o bundle em `~/Applications`, sincroniza o runtime para `~/Library/Application Support/Orquestra/runtime` e registra o LaunchAgent `ai.orquestra.api`.
-Para Macs mais lentos no primeiro boot, ajuste `ORQUESTRA_INSTALL_API_WAIT_SECONDS=120` antes de instalar.
-Cada upgrade com sync de runtime cria backup do banco em `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/backups`.
-Use `ORQUESTRA_INSTALL_BACKUP_LIMIT=8` para alterar a retenção padrão de 5 backups.
-
-Artefatos gerados:
-- `orquestra_web/src-tauri/target/release/bundle/macos/Orquestra AI.app`
-- `orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI_0.2.0_aarch64.dmg`
-
-## Desinstalar no macOS
-```bash
-cd /caminho/para/Orquestra
 ./scripts/uninstall_orquestra_macos.sh
 ```
 
-Remover tambem dados e logs:
+O instalador atual:
+- instala `Orquestra AI.app` em `~/Applications`
+- espelha o runtime em `~/Library/Application Support/Orquestra/runtime`
+- registra o LaunchAgent `ai.orquestra.api`
+- cria manifesto e backups de upgrade do banco
+
+## Validacao oficial
+O comando oficial de validacao e:
+
 ```bash
-./scripts/uninstall_orquestra_macos.sh --purge-data
-./scripts/uninstall_orquestra_macos.sh --no-launch-agent
+./scripts/validate_orquestra.sh
 ```
 
-## Enderecos locais
-- API: `http://127.0.0.1:8808`
-- Web: `http://127.0.0.1:4177`
-- App: `~/Applications/Orquestra AI.app`
-- Logs instalados: `~/Library/Logs/Orquestra`
-- Dados de suporte: `~/Library/Application Support/Orquestra`
-- Runtime instalado: `~/Library/Application Support/Orquestra/runtime`
-- Manifesto de instalacao: `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/install_manifest.json`
-- Backups de upgrade: `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/backups`
+Ele executa:
+- `py_compile`
+- `pytest -q`
+- `bash -n` nos scripts
+- `vitest`
+- `tsc -b`
+- `vite build`
+- `cargo check`
+- validacao do pacote macOS quando `.app` e `.dmg` existem
+- smoke da API cobrindo sessao, memoria, compactacao, planner, workflow, workspace e RAG
+
+## Checkpoint e retomada
+O protocolo de continuidade do repositório foi reduzido para quatro fontes curtas:
+
+- `AGENTS.md`
+- `.codex/memory/orquestra-continuity.md`
+- `git log --oneline -5`
+- `git status --short`
+
+Prompt curto recomendado para retomar sem reler toda a thread:
+
+```text
+Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.
+```
+
+## Estado atual da entrega
+- backend, frontend web e desktop estao integros no fluxo local
+- memoria hibrida, compactacao, planner e workflows locais ja estao implementados
+- a documentacao operacional ja cobre instalacao, uso, arquitetura e continuidade
+- a validacao principal esta verde no branch de trabalho
+
+Limites atuais:
+- conectores remotos ainda operam como catalogo/intencao, sem execucao remota real
+- EC2 continua adiado para o proximo ciclo
+- distribuicao publica ainda nao usa assinatura/notarizacao final
 
 ## Documentacao
-- [Manual operacional completo](docs/02-manual-operacional.md)
 - [Instalacao e validacao macOS](docs/01-instalacao-validacao-macos.md)
-- [Orquestra AI Control Plane](docs/11-orquestra-ai-control-plane.md)
-- [Orquestra V2 MemoryGraph Workspace](docs/12-orquestra-v2-memorygraph-workspace.md)
+- [Manual operacional](docs/02-manual-operacional.md)
+- [Control plane e APIs](docs/11-orquestra-ai-control-plane.md)
+- [MemoryGraph, Workspace e runtime](docs/12-orquestra-v2-memorygraph-workspace.md)
 - [Checkpoint e retomada](docs/continuity/orquestra-current.md)
 
-## Marca
-- Logo: `assets/brand/orquestra-logo.svg`
-- Wordmark: `assets/brand/orquestra-wordmark.svg`
-- A UI desktop/web usa a mesma marca em `orquestra_web/src/assets/orquestra-logo.svg`.
-
 ## Seguranca
-- Nunca versionar `.env` real, chaves privadas ou credenciais.
-- Usar `.env.example` como referencia.
-- Preferir `LM Studio` e modo mock para validacao local.
-- Ativar providers remotos somente quando as chaves estiverem configuradas fora do Git.
-- Manter a integracao EC2 adiada ate existir alvo remoto e politica de execucao aprovada.
+- nunca versione segredos, chaves privadas ou credenciais reais
+- prefira `.env` local e providers mock/local-safe para validacao
+- nao promova dataset sem aprovacao explicita
+- mantenha o fluxo local-first como padrao operacional

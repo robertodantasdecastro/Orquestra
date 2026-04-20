@@ -1,156 +1,107 @@
-# Orquestra AI
-
-`Orquestra AI` e o control plane unificado da aplicacao `Orquestra`. A proposta e concentrar `RAG`, memoria, leitura multimodal, jobs remotos e operacao de modelos em um workspace proprio, separado do `Local_RAG`.
-
-> Atualizacao: o estado mais novo da implementacao agora esta consolidado em `docs/12-orquestra-v2-memorygraph-workspace.md`, com `MemoryGraph V2`, memoria associada ao RAG, `Workspace Multimodal` e shell desktop macOS.
-> Manual operacional completo: `docs/02-manual-operacional.md`.
+# Orquestra AI Control Plane
 
 ## Objetivo
-Criar um ambiente unico para:
-- conversar com providers remotos e locais;
-- manter memoria personalizada e evolutiva;
-- consultar, curar e exportar conhecimento pelo `RAG`;
-- preparar e acompanhar jobs remotos;
-- registrar artefatos, adapters e deploys por projeto.
+Este documento descreve o desenho operacional do Orquestra como control plane local-first para:
 
-O control plane deve permanecer `local-first`: o Mac coordena a operacao, a API local responde em `127.0.0.1:8808`, a UI web/desktop consome os mesmos endpoints e os conectores remotos podem ficar indisponiveis sem travar chat, memoria, RAG ou workspace.
+- chat multi-provider
+- memoria persistente e memoria operacional
+- RAG contextual
+- leitura multimodal de diretorios
+- planner de sessao
+- workflows locais multi-step
+- registro de jobs, modelos e artefatos
 
-## Estrutura
-- backend: `orquestra_ai/`
-- frontend: `orquestra_web/`
-- marca: `assets/brand/`
-- scripts:
-  - `scripts/start_orquestra_api.sh`
-  - `scripts/start_orquestra_web.sh`
-  - `scripts/build_orquestra_web.sh`
-  - `scripts/start_orquestra_stack.sh`
-  - `scripts/install_orquestra_macos.sh`
-  - `scripts/uninstall_orquestra_macos.sh`
-  - `scripts/validate_orquestra_macos_package.sh`
-  - `script/build_and_run.sh`
+## Componentes principais
+### Backend
+- `orquestra_ai/app.py`
+- `orquestra_ai/services.py`
+- `orquestra_ai/models.py`
 
-## Providers do v1
+O backend:
+- serve a API
+- coordena sessao, memoria, planner e workflow
+- executa bootstrap de runtime por `lifespan`
+- expõe saude, dashboard e endpoints de produto
+
+### Gateway de modelos
+- `orquestra_ai/gateway.py`
+
+Providers suportados:
 - `lmstudio`
 - `openai`
 - `anthropic`
 - `deepseek`
 - `ollama`
+- `litellm`
 
-## Conectores remotos do v1
-- `ec2`
-- `sagemaker_notebook_job`
-- `kaggle_kernel`
-- `databricks_job`
+### Memoria e contexto
+- `orquestra_ai/memory_graph.py`
+- `orquestra_ai/memory_recall.py`
+- `orquestra_ai/rag_memory.py`
+- `orquestra_ai/session_profile.py`
+- `orquestra_ai/memory_candidates.py`
 
-No ciclo atual, o catalogo de conectores ja existe, mas a execucao remota real segue adiada. `SageMaker`, `Kaggle` e `Databricks` aparecem como stubs operacionais do catalogo, com readiness baseada em variaveis de ambiente, e a integracao de `EC2` fica explicitamente para uma fase posterior.
+### Planner e workflow
+- `orquestra_ai/planner.py`
+- `orquestra_ai/workflow_engine.py`
+- `orquestra_ai/operations.py`
 
-## Fluxo padrao
-1. escolher projeto, provider e modelo no `Workspace UI`
-2. criar sessao com objetivo, preset e politica de memoria/RAG
-3. conversar pelo `Assistant Workspace`
-4. revisar `Memory Inbox` antes de promover memoria ou dataset
-5. compactar contexto e reconstruir planner quando a sessao crescer
-6. executar consultas no `RAG Studio` com memoria aprovada quando houver
-7. disparar workflows locais multi-step no `Execution Center` quando houver validacao ou operacao recorrente
-8. registrar artifacts e benchmarks no `Model Hub`
-9. preparar jobs remotos no `Train Ops`
+### Workspace
+- `orquestra_ai/workspace.py`
 
-## Recursos principais
-- `Assistant Workspace`: conversa multi-provider com resumo, transcript, `Session Profile`, compactacao de contexto, planner e painel `Memoria & RAG`.
-- `Memory Studio`: memoria duravel, topicos, projecao `memdir`, promocao, `Memory Inbox` e training candidates.
-- `Workspace Browser`: anexar diretorios, inventariar, extrair, abrir e memorizar ativos.
-- `RAG Studio`: consulta local ao engine RAG integrado ao gateway, a colecao Chroma `orquestra_memory_v1` e ao seletor de memoria hibrido.
-- `Execution Center`: providers, conectores, jobs, registry, comparacao, workflows locais multi-step e acoes operacionais.
-- `Operations Dashboard`: status de servicos, processos, memoria, execucao e artefatos macOS.
+### Frontend e desktop
+- `orquestra_web/src/App.tsx`
+- `orquestra_web/src/api.ts`
+- `orquestra_web/src-tauri/`
 
-## Operacao local
-### API
-```bash
-cd /caminho/para/Orquestra
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-orquestra.txt
-./scripts/start_orquestra_api.sh
-```
+## Superficies da interface
+As areas de produto usadas hoje pelo shell web/desktop sao:
 
-### Frontend
-```bash
-cd /caminho/para/Orquestra
-./scripts/start_orquestra_web.sh
-```
+1. `Operations Dashboard`
+2. `Process Center`
+3. `Memory Studio`
+4. `Execution Center`
+5. `Assistant Workspace`
+6. `Workspace Browser`
+7. `Projects`
 
-### Stack em background
-```bash
-cd /caminho/para/Orquestra
-./scripts/start_orquestra_stack.sh
-```
+## Modelo operacional da sessao
+Cada sessao combina:
+- `ChatSession`
+- `ChatMessage`
+- `SessionTranscript`
+- `SessionSummary`
+- `SessionCompactionState`
+- `PlannerSnapshot`
+- `SessionTask`
 
-### Desktop macOS
-```bash
-cd /caminho/para/Orquestra
-./script/build_and_run.sh --verify
-```
+### Perfil da sessao
+O perfil fica em `ChatSession.metadata_json` e inclui:
+- `objective`
+- `preset`
+- `memory_policy`
+- `rag_policy`
+- `persona_config`
 
-Instalacao local:
-```bash
-./scripts/install_orquestra_macos.sh
-```
+### Presets
+- `research`
+- `osint`
+- `persona`
+- `assistant`
+- `dataset`
 
-O instalador copia o `.app` para `~/Applications`, espelha o runtime em `~/Library/Application Support/Orquestra/runtime` e registra o LaunchAgent `ai.orquestra.api` apontando para esse runtime local.
-Cada upgrade com sync de runtime cria backup do banco local e atualiza o manifesto de instalação em `experiments/orquestra/install/install_manifest.json`.
+## Semantica real das flags publicas
+Os contratos publicos de `POST /api/chat/stream` e `POST /api/rag/query` ja tem semantica operacional efetiva:
 
-Validacao de pacote:
-```bash
-./scripts/validate_orquestra_macos_package.sh
-```
+- `planner_enabled`: controla o uso do planner no contexto e na reconstrução operacional
+- `memory_selector_mode`: aceita `hybrid` e `lexical`
+- `include_workspace`: controla a secao `Workspace/fontes`
+- `include_sources`: controla a secao `RAG legado`
+- `compaction_enabled`: liga/desliga snapshot compacto
+- `task_context_enabled`: controla uso do contexto de tarefas
+- `context_budget`: limita o contexto agregado
 
-## Endpoints principais
-- `GET /api/health` retorna `app_version`, `schema_version`, `schema_target_version`, `migration_required` e `runtime`
-- `GET /api/providers`
-- `GET /api/models`
-- `GET /api/connectors`
-- `GET /api/projects`
-- `POST /api/projects`
-- `GET /api/chat/sessions`
-- `POST /api/chat/sessions`
-- `GET /api/chat/sessions/{id}/profile`
-- `PUT /api/chat/sessions/{id}/profile`
-- `GET /api/chat/sessions/{id}/messages`
-- `POST /api/chat/sessions/{id}/compact`
-- `GET /api/chat/sessions/{id}/planner`
-- `POST /api/chat/sessions/{id}/planner/rebuild`
-- `GET /api/chat/sessions/{id}/tasks`
-- `POST /api/chat/sessions/{id}/tasks`
-- `PATCH /api/chat/sessions/{id}/tasks`
-- `POST /api/chat/stream`
-- `GET /api/memory`
-- `GET /api/memory/candidates`
-- `POST /api/memory/candidates/{id}/approve`
-- `POST /api/memory/candidates/{id}/reject`
-- `POST /api/memory/upsert`
-- `POST /api/rag/query`
-- `GET /api/workflows/runs`
-- `POST /api/workflows/runs`
-- `GET /api/workflows/runs/{id}`
-- `POST /api/workflows/runs/{id}/cancel`
-- `GET /api/training/jobs`
-- `POST /api/training/jobs`
-- `GET /api/remote/jobs`
-- `POST /api/remote/jobs`
-- `GET /api/registry/models`
-- `POST /api/registry/models`
-
-## Semantica operacional das flags publicas
-Os contratos expostos por `POST /api/chat/stream` e `POST /api/rag/query` agora tem comportamento real no backend:
-
-- `planner_enabled`: liga/desliga o bloco de planner no contexto e a reconstrução operacional da sessao.
-- `memory_selector_mode`: aceita `hybrid` como padrao e `lexical` como selecao explicita sem reforco vetorial.
-- `include_workspace`: controla a secao `Workspace/fontes` na montagem de contexto.
-- `include_sources`: controla a secao `RAG legado` e as citacoes vindas de fontes locais/colecoes legadas.
-- `compaction_enabled`: alterna entre `snapshot compacto` e fluxo simplificado de resumo.
-- `context_budget`: limita o bloco agregado usado por chat/RAG sob conversas longas.
-
-Ordem fixa de montagem de contexto:
+### Ordem fixa do contexto
 1. perfil da sessao
 2. snapshot compacto
 3. planner
@@ -159,28 +110,202 @@ Ordem fixa de montagem de contexto:
 6. RAG legado
 7. mensagem atual
 
-## Checkpoint e retomada
-O fluxo de continuidade do Orquestra agora e versionado no proprio repositório:
+## Memoria e RAG
+### Camadas
+- transcript bruto em JSONL
+- resumo estruturado
+- estado de compactacao
+- fila de revisao
+- memoria duravel
+- indice vetorial `orquestra_memory_v1`
+- projecao em arquivos `memdir`
 
+### Tipos de memoria
+- `user`
+- `feedback`
+- `project`
+- `reference`
+- `persona`
+- `dataset`
+
+### Escopos relevantes
+- `session_memory`
+- `episodic_memory`
+- `semantic_memory`
+- `workspace_memory`
+- `persona_memory`
+- `source_fact`
+- `training_signal`
+
+### Pipeline de aprovacao
+Ao aprovar um `MemoryReviewCandidate`, o sistema cria:
+1. `MemoryRecord`
+2. projecao em arquivo
+3. indexacao em `orquestra_memory_v1`
+
+### Politica de resiliencia
+- falha de embedding nao quebra chat
+- falha do backend vetorial nao quebra recall
+- fallback lexical continua disponivel
+
+## Planner hibrido
+### Entidades
+- `PlannerSnapshot`
+- `SessionTask`
+
+### Recursos
+- `next_steps` reais
+- estrategia e riscos
+- tarefas persistidas
+- dependencias por `blocked_by` e `blocks`
+- visibilidade na UI lateral do chat
+
+## Executor local multi-step
+### Entidades
+- `WorkflowRun`
+- `WorkflowStepRun`
+
+### Passos suportados
+- `ops_action`
+- `rag_query`
+- `workspace_query`
+- `workspace_extract`
+- `memory_review_batch`
+- `shell_safe`
+
+### Garantias operacionais
+- progresso por passo
+- cancelamento
+- logs persistidos
+- `output_path`
+- `output_preview`
+- saida parcial em falha
+- recuperacao apos restart
+- vinculo com sessao e tarefa
+
+## Workspace multimodal
+### Politica
+- inventario primeiro
+- extracao pesada depois
+- ranking por metadado + conteudo quando aplicavel
+- degradacao lexical quando vetor falha
+
+### Tipos de ativo
+- `code_text`
+- `image`
+- `pdf`
+- `office`
+- `audio`
+- `video`
+- `binary`
+
+## Runtime e distribuicao
+### Enderecos locais
+- API: `http://127.0.0.1:8808`
+- Web: `http://127.0.0.1:4177`
+
+### Artefatos macOS
+- `Orquestra AI.app`
+- `Orquestra AI_0.2.0_aarch64.dmg`
+
+### Instalacao
+- `scripts/install_orquestra_macos.sh`
+- `scripts/uninstall_orquestra_macos.sh`
+- LaunchAgent `ai.orquestra.api`
+- runtime em `~/Library/Application Support/Orquestra/runtime`
+
+## API publica agrupada por dominio
+### Saude e operacao
+- `GET /api/health`
+- `GET /api/ops/dashboard`
+- `GET /api/ops/actions`
+- `GET /api/ops/runs`
+- `GET /api/ops/runs/{run_id}`
+- `POST /api/ops/runs`
+
+### Workflows
+- `GET /api/workflows/runs`
+- `GET /api/workflows/runs/{run_id}`
+- `POST /api/workflows/runs`
+- `POST /api/workflows/runs/{run_id}/cancel`
+
+### Providers, modelos e projetos
+- `GET /api/providers`
+- `PUT /api/providers`
+- `GET /api/models`
+- `GET /api/connectors`
+- `GET /api/projects`
+- `POST /api/projects`
+- `POST /api/projects/{project_id}/deployments`
+
+### Chat e sessao
+- `POST /api/chat/sessions`
+- `GET /api/chat/sessions`
+- `GET /api/chat/sessions/{session_id}/profile`
+- `PUT /api/chat/sessions/{session_id}/profile`
+- `GET /api/chat/sessions/{session_id}/messages`
+- `POST /api/chat/sessions/{session_id}/resume`
+- `GET /api/chat/sessions/{session_id}/transcript`
+- `GET /api/chat/sessions/{session_id}/summary`
+- `POST /api/chat/sessions/{session_id}/compact`
+- `GET /api/chat/sessions/{session_id}/planner`
+- `POST /api/chat/sessions/{session_id}/planner/rebuild`
+- `GET /api/chat/sessions/{session_id}/tasks`
+- `POST /api/chat/sessions/{session_id}/tasks`
+- `PATCH /api/chat/sessions/{session_id}/tasks`
+- `GET /api/tasks/{task_id}`
+- `POST /api/chat/stream`
+
+### Memoria
+- `GET /api/memory`
+- `POST /api/memory/upsert`
+- `GET /api/memory/topics`
+- `POST /api/memory/recall`
+- `POST /api/memory/promote`
+- `GET /api/memory/candidates`
+- `POST /api/memory/candidates/{candidate_id}/approve`
+- `POST /api/memory/candidates/{candidate_id}/reject`
+- `GET /api/memory/training-candidates`
+- `POST /api/memory/training-candidates`
+
+### RAG
+- `POST /api/rag/query`
+
+### Workspace
+- `GET /api/workspace/scans`
+- `POST /api/workspace/attach-directory`
+- `GET /api/workspace/scans/{scan_id}`
+- `GET /api/workspace/assets`
+- `POST /api/workspace/query`
+- `POST /api/workspace/assets/{asset_id}/extract`
+- `GET /api/workspace/assets/{asset_id}/preview`
+- `POST /api/workspace/assets/{asset_id}/open`
+- `POST /api/workspace/assets/{asset_id}/memorize`
+
+### Jobs e registry
+- `GET /api/training/jobs`
+- `POST /api/training/jobs`
+- `GET /api/remote/jobs`
+- `POST /api/remote/jobs`
+- `GET /api/remote/jobs/{job_id}/logs`
+- `GET /api/registry/models`
+- `POST /api/registry/models`
+- `POST /api/registry/compare`
+
+## Checkpoint e retomada
+O repositório usa um handoff versionado:
 - arquivo canonico: `.codex/memory/orquestra-continuity.md`
 - espelho humano: `docs/continuity/orquestra-current.md`
 
-Ao concluir cada micro-etapa:
-1. atualizar o handoff
-2. rodar a validacao minima da etapa
+Fluxo por etapa:
+1. atualizar handoff
+2. validar a etapa
 3. rodar `git diff --check`
 4. registrar `git status --short`
-5. criar commit
-6. fazer push
+5. commit
+6. push
 
-Retomada recomendada:
-
-```text
-Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a implementacao a partir da Proxima acao exata, sem reanalisar todo o projeto.
-```
-
-## Notas de projeto
-- `claude-code/v1` deve seguir somente como referencia de UX e arquitetura, nao como base de codigo.
-- o `rag/llm.py` agora aceita providers do gateway sem quebrar o fluxo RAG antigo.
-- o frontend novo e `chat-first`, mas unifica memoria, compactacao, planner, RAG, workflows, modelos, jobs e configuracao no mesmo shell.
-- `training jobs` e `remote jobs` hoje registram intencao e metadados na aplicacao, mas ainda nao despacham execucao remota real.
+## Limites atuais
+- conectores remotos ainda nao executam treino real
+- EC2 continua fora desta fase
+- distribuicao publica notarizada ainda nao esta fechada

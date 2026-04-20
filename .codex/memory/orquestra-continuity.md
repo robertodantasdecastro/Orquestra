@@ -1,34 +1,30 @@
 # Orquestra Continuity
 
 - Branch atual: `codex/orquestra-paridade-claudecodes-v1`
-- Ultimo commit: `f4b4583`
-- Etapa concluida: `Etapa 5 concluida`
-- Estado do worktree: `Pronto para checkpoint Git final`
+- Ultimo commit: `66f427b`
+- Etapa concluida: `Documentacao consolidada e pronta para promocao`
+- Estado do worktree: `Pronto para commit da atualizacao documental e merge em main`
 - Validacoes executadas:
-  - `source .venv/bin/activate && PYTHONPATH=. pytest -q`
-  - `cd orquestra_web && ./node_modules/.bin/vitest run --environment jsdom`
-  - `cd orquestra_web && ./node_modules/.bin/tsc -b`
   - `./scripts/validate_orquestra.sh`
   - `git diff --check`
 - Pendencias abertas:
-  - nenhuma pendencia tecnica imediata desta rodada de paridade
-  - proximo ciclo pode focar providers reais, OCR/transcricao opcional e prontidao de Train Ops/Registry
-- Proxima acao exata: `Revisar a branch, abrir PR ou seguir para a proxima rodada de produto a partir deste checkpoint final`
+  - promover o checkpoint documental para `main`
+  - se necessario depois, abrir um ciclo novo para providers reais, OCR/transcricao opcional e prontidao de Train Ops/Registry
+- Proxima acao exata: `Criar commit da documentacao reescrita, fazer push da branch de trabalho, mergear em main e enviar main ao remoto`
 - Arquivos principais tocados:
-  - `orquestra_ai/app.py`
   - `README.md`
+  - `docs/01-instalacao-validacao-macos.md`
   - `docs/02-manual-operacional.md`
   - `docs/11-orquestra-ai-control-plane.md`
   - `docs/12-orquestra-v2-memorygraph-workspace.md`
-  - `docs/continuity/orquestra-current.md`
   - `.codex/memory/orquestra-continuity.md`
 - O que mudou:
-  - o backend FastAPI trocou `@app.on_event` por `lifespan`, removendo os warnings de startup/shutdown
-  - README e docs agora documentam semantica real das flags de contexto, ordem do prompt e protocolo de checkpoint/retomada
-  - foi criado o espelho humano `docs/continuity/orquestra-current.md` para retomada barata fora da thread
+  - o `README` foi reescrito como porta de entrada atual do produto
+  - a documentacao de instalacao, manual, control plane e MemoryGraph/Workspace foi alinhada com as 7 areas reais da UI
+  - os textos agora refletem memoria hibrida, compactacao, planner, workflows locais, RAG operacional e instalacao macOS sem nomes antigos de tela
 - O que validar:
-  - branch pronta para revisao humana, PR ou merge
-  - handoff curto segue suficiente para retomar sem reler a thread inteira
+  - merge limpo em `main`
+  - `main` sincronizada com o remoto
 - Caminhos de logs/artefatos:
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.log`
   - `experiments/orquestra/workflows/<date>/<workflow>/<workflow>-<ts>.json`
