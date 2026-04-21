@@ -143,6 +143,78 @@ fi
 
 mkdir -p "$(dirname "${INSTALL_DIR}")" "${SUPPORT_DIR}" "${LOG_DIR}" "${LAUNCH_AGENTS_DIR}"
 
+create_launcher_app() {
+  local launcher_app="$1"
+  local target_app="$2"
+  local icon_source="$3"
+  local launcher_exec="orquestra-launcher"
+  local launcher_id="com.localrag.orquestra.launcher"
+  local quoted_target
+
+  quoted_target="$(/usr/bin/python3 - <<'PY' "${target_app}"
+import shlex
+import sys
+
+print(shlex.quote(sys.argv[1]))
+PY
+)"
+
+  rm -rf "${launcher_app}"
+  mkdir -p "${launcher_app}/Contents/MacOS" "${launcher_app}/Contents/Resources"
+
+  if [[ -f "${icon_source}" ]]; then
+    cp "${icon_source}" "${launcher_app}/Contents/Resources/icon.icns"
+  fi
+
+  cat > "${launcher_app}/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>English</string>
+  <key>CFBundleDisplayName</key>
+  <string>Orquestra</string>
+  <key>CFBundleExecutable</key>
+  <string>${launcher_exec}</string>
+  <key>CFBundleIconFile</key>
+  <string>icon.icns</string>
+  <key>CFBundleIdentifier</key>
+  <string>${launcher_id}</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Orquestra</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${PACKAGE_VERSION}</string>
+  <key>CFBundleVersion</key>
+  <string>${PACKAGE_VERSION}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.13</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+
+  cat > "${launcher_app}/Contents/MacOS/${launcher_exec}" <<SH
+#!/usr/bin/env bash
+set -euo pipefail
+
+TARGET_APP=${quoted_target}
+
+if [[ ! -d "\${TARGET_APP}" ]]; then
+  /usr/bin/osascript -e 'display dialog "O Orquestra AI.app nao foi encontrado no local esperado. Reinstale o Orquestra para recriar o launcher." buttons {"OK"} default button "OK" with title "Orquestra"'
+  exit 1
+fi
+
+exec /usr/bin/open "\${TARGET_APP}"
+SH
+  chmod +x "${launcher_app}/Contents/MacOS/${launcher_exec}"
+}
+
 echo "[orquestra-install] root: ${ROOT_DIR}"
 if [[ "${SKIP_BUILD}" != "true" ]]; then
   echo "[orquestra-install] preparando ambiente local"
@@ -181,9 +253,8 @@ echo "[orquestra-install] instalando desinstalador em ${UNINSTALLER_INSTALL_DIR}
 rm -rf "${UNINSTALLER_INSTALL_DIR}"
 ditto "${UNINSTALLER_SOURCE}" "${UNINSTALLER_INSTALL_DIR}"
 
-echo "[orquestra-install] criando atalho de abertura em ${APP_SHORTCUT_PATH}"
-rm -rf "${APP_SHORTCUT_PATH}"
-ln -s "${INSTALL_DIR}" "${APP_SHORTCUT_PATH}"
+echo "[orquestra-install] criando launcher de abertura em ${APP_SHORTCUT_PATH}"
+create_launcher_app "${APP_SHORTCUT_PATH}" "${INSTALL_DIR}" "${INSTALL_DIR}/Contents/Resources/icon.icns"
 
 if [[ "${INSTALL_LAUNCH_AGENT}" != "true" ]]; then
   echo
