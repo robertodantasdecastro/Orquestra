@@ -85,6 +85,17 @@ Conectores administraveis ja seedados para evolucao/control plane:
 - `reddit`: desligado por padrao e condicionado a politica explicita
 - `onion_manual`: desligado por padrao e usado como seed manual
 
+Para preparar chaves e dependencias opcionais, use:
+
+```bash
+./scripts/install_orquestra_macos_full.sh --with-optional brave,tor --configure-env
+./scripts/check_orquestra_macos_installation.sh --check-only
+```
+
+Guia completo de logins/chaves:
+
+- [docs/05-instalador-completo-macos.md](./05-instalador-completo-macos.md)
+
 ## Source Registry
 
 O `Source Registry` serve para:

@@ -32,6 +32,7 @@ Hoje o Orquestra entrega:
 - [docs/02-manual-operacional.md](docs/02-manual-operacional.md): manual de uso completo da aplicacao.
 - [docs/03-osint-lab.md](docs/03-osint-lab.md): operacao detalhada do `OSINT Lab`.
 - [docs/04-train-plane.md](docs/04-train-plane.md): uso do `Remote Train Plane` e fluxo de treino/comparacao.
+- [docs/05-instalador-completo-macos.md](docs/05-instalador-completo-macos.md): instalacao do zero, chaves, opcionais e desinstalacao seletiva.
 - [docs/11-orquestra-ai-control-plane.md](docs/11-orquestra-ai-control-plane.md): arquitetura do control plane, dominios e APIs.
 - [docs/12-orquestra-v2-memorygraph-workspace.md](docs/12-orquestra-v2-memorygraph-workspace.md): memoria, contexto, workspace, runtime e OSINT tecnico.
 - [docs/continuity/orquestra-current.md](docs/continuity/orquestra-current.md): protocolo de checkpoint e retomada com baixo uso de contexto.
@@ -185,13 +186,32 @@ Flags que ja tem semantica operacional real:
 
 ## Instalacao no macOS
 
-Instalar:
+Instalacao completa do zero, incluindo dependencias obrigatorias:
+
+```bash
+./scripts/install_orquestra_macos_full.sh
+```
+
+Diagnostico sem alterar o sistema:
+
+```bash
+./scripts/install_orquestra_macos_full.sh --check-only
+```
+
+Instalador base do app, para ambientes ja preparados:
 
 ```bash
 ./scripts/install_orquestra_macos.sh
 ```
 
-Desinstalar:
+Desinstalador seletivo completo:
+
+```bash
+./scripts/uninstall_orquestra_macos_full.sh --dry-run
+./scripts/uninstall_orquestra_macos_full.sh --mode safe
+```
+
+Desinstalador base:
 
 ```bash
 ./scripts/uninstall_orquestra_macos.sh
@@ -200,6 +220,7 @@ Desinstalar:
 Guia completo:
 
 - [docs/01-instalacao-validacao-macos.md](docs/01-instalacao-validacao-macos.md)
+- [docs/05-instalador-completo-macos.md](docs/05-instalador-completo-macos.md)
 
 ## Providers reais e smoke opcional
 

@@ -31,6 +31,19 @@ Opcionais, conforme o caso:
 
 ## Bootstrap do repositorio
 
+Para um Mac novo ou sem dependencias, prefira primeiro o instalador completo:
+
+```bash
+./scripts/install_orquestra_macos_full.sh --check-only
+./scripts/install_orquestra_macos_full.sh
+```
+
+Guia detalhado:
+
+- [docs/05-instalador-completo-macos.md](./05-instalador-completo-macos.md)
+
+Se o ambiente ja tem Python, Node, Rust e dependencias basicas, use o bootstrap direto:
+
 ```bash
 cd /caminho/para/Orquestra
 ./scripts/bootstrap_orquestra.sh
@@ -186,7 +199,19 @@ Validacao do pacote:
 
 ## Instalacao do app no macOS
 
-Instalacao padrao:
+Instalacao completa do zero:
+
+```bash
+./scripts/install_orquestra_macos_full.sh
+```
+
+Diagnostico sem alterar o sistema:
+
+```bash
+./scripts/install_orquestra_macos_full.sh --check-only
+```
+
+Instalacao padrao para ambiente ja preparado:
 
 ```bash
 ./scripts/install_orquestra_macos.sh
@@ -223,7 +248,26 @@ ORQUESTRA_INSTALL_BACKUP_LIMIT=8 ./scripts/install_orquestra_macos.sh --skip-bui
 
 ## Desinstalacao
 
-Padrao:
+Desinstalacao seletiva completa:
+
+```bash
+./scripts/uninstall_orquestra_macos_full.sh --dry-run
+./scripts/uninstall_orquestra_macos_full.sh --mode safe
+```
+
+Preservar dependencias globais:
+
+```bash
+./scripts/uninstall_orquestra_macos_full.sh --mode preserve-deps
+```
+
+Remover itens especificos com backup:
+
+```bash
+./scripts/uninstall_orquestra_macos_full.sh --select memory,osint,workspace,db --backup-data
+```
+
+Desinstalador base:
 
 ```bash
 ./scripts/uninstall_orquestra_macos.sh

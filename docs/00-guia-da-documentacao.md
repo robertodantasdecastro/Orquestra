@@ -10,7 +10,8 @@ Este arquivo organiza a documentacao oficial do Orquestra e indica qual document
 
 1. [README.md](../README.md)
 2. [docs/01-instalacao-validacao-macos.md](./01-instalacao-validacao-macos.md)
-3. [docs/02-manual-operacional.md](./02-manual-operacional.md)
+3. [docs/05-instalador-completo-macos.md](./05-instalador-completo-macos.md)
+4. [docs/02-manual-operacional.md](./02-manual-operacional.md)
 
 ### Operacao diaria
 
@@ -53,6 +54,12 @@ Este arquivo organiza a documentacao oficial do Orquestra e indica qual document
   - configuracao remota
   - sync de base model e dataset
   - runs, artifacts, evaluations e comparisons
+
+- [docs/05-instalador-completo-macos.md](./05-instalador-completo-macos.md)
+  - instalacao do zero
+  - dependencias obrigatorias e opcionais
+  - logins, API keys e `.env`
+  - desinstalacao seletiva e backup de memorias
 
 - [docs/11-orquestra-ai-control-plane.md](./11-orquestra-ai-control-plane.md)
   - dominios do sistema

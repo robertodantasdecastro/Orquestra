@@ -67,6 +67,11 @@ O ciclo atual em `main` agora inclui, alem da paridade alta anterior:
   - guia dedicado do `Remote Train Plane`
 - desktop macOS com instalador/desinstalador
 - README e docs reescritos para a superficie atual do produto
+- instalador completo macOS com:
+  - diagnostico `check-only`
+  - instalacao de dependencias obrigatorias
+  - guia de opcionais e chaves
+  - desinstalador seletivo com backup de memorias/dados
 - `Train Plane` remoto dedicado com:
   - backend `orquestra_trainplane/`
   - proxy local `/api/remote/trainplane/*`

@@ -1,9 +1,9 @@
 # Orquestra Continuity
 
 - Branch atual: `main`
-- Último commit íntegro: `f250256`
-- Etapa concluída: `Atualização completa da documentação, manuais de uso e guias operacionais para OSINT, memória, workflows e Train Plane`
-- Estado do worktree: `pronto para checkpoint final da documentação`
+- Último commit íntegro: `cd5f32d`
+- Etapa concluída: `Implementação do instalador completo macOS, verificador, desinstalador seletivo e documentação de instalação do zero`
+- Estado do worktree: `pronto para checkpoint final do instalador completo`
 - Validações executadas:
   - `.venv/bin/python -m py_compile orquestra_ai/app.py orquestra_ai/services.py orquestra_ai/rag_memory.py orquestra_ai/osint.py orquestra_ai/models.py orquestra_ai/schema_state.py`
   - `.venv/bin/pytest -q`
@@ -16,7 +16,7 @@
   - decidir a próxima micro-etapa entre `OCR/transcrição multimodal mais rica` e `integrações AWS reais do Train Plane`
   - se necessário, expandir o `Execution Center` com métricas OSINT mais profundas além do resumo já exposto
 - Próxima ação exata:
-  - `Validar manualmente o OSINT Lab com LM Studio/local providers reais e depois seguir para a próxima etapa do plano global: OCR/transcrição multimodal ou integrações AWS reais do Train Plane`
+  - `Validar manualmente o instalador completo em um Mac limpo ou ambiente descartável; depois validar OSINT Lab com providers reais e seguir para OCR/transcrição multimodal ou integrações AWS reais do Train Plane`
 - Arquivos principais tocados:
   - `README.md`
   - `docs/00-guia-da-documentacao.md`
@@ -24,9 +24,15 @@
   - `docs/02-manual-operacional.md`
   - `docs/03-osint-lab.md`
   - `docs/04-train-plane.md`
+  - `docs/05-instalador-completo-macos.md`
   - `docs/11-orquestra-ai-control-plane.md`
   - `docs/12-orquestra-v2-memorygraph-workspace.md`
   - `docs/continuity/orquestra-current.md`
+  - `scripts/install_orquestra_macos_full.sh`
+  - `scripts/check_orquestra_macos_installation.sh`
+  - `scripts/uninstall_orquestra_macos_full.sh`
+  - `scripts/install_orquestra_macos.sh`
+  - `.env.example`
   - `orquestra_ai/app.py`
   - `orquestra_ai/services.py`
   - `orquestra_ai/rag_memory.py`
@@ -36,6 +42,12 @@
   - `tests/test_osint_api.py`
   - `orquestra_web/src/App.test.tsx`
 - O que mudou:
+  - foi criado o instalador completo `install_orquestra_macos_full.sh`
+  - foi criado o verificador `check_orquestra_macos_installation.sh`
+  - foi criado o desinstalador seletivo `uninstall_orquestra_macos_full.sh`
+  - `.env.example` agora lista chaves OSINT, Tor proxy e modelo Whisper
+  - o instalador base deixou de depender de `mapfile`, melhorando compatibilidade com Bash do macOS
+  - foi criado o guia `docs/05-instalador-completo-macos.md`
   - a documentacao principal foi reorganizada em guia, instalacao, manual operacional, OSINT Lab e Train Plane
   - o `README` foi reescrito para refletir a superficie atual completa do produto
   - os documentos tecnicos agora descrevem explicitamente memoria, contexto, OSINT, workspace e control plane

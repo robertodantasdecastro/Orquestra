@@ -203,7 +203,10 @@ PY
     echo "[orquestra-install] backup do banco salvo em ${BACKUP_PATH}"
 
     BACKUP_LIMIT="${ORQUESTRA_INSTALL_BACKUP_LIMIT:-5}"
-    mapfile -t EXISTING_BACKUPS < <(ls -1t "${BACKUP_DIR}"/orquestra_v2-*.db 2>/dev/null || true)
+    EXISTING_BACKUPS=()
+    while IFS= read -r BACKUP_ITEM; do
+      EXISTING_BACKUPS+=("${BACKUP_ITEM}")
+    done < <(ls -1t "${BACKUP_DIR}"/orquestra_v2-*.db 2>/dev/null || true)
     if [[ "${#EXISTING_BACKUPS[@]}" -gt "${BACKUP_LIMIT}" ]]; then
       for OLD_BACKUP in "${EXISTING_BACKUPS[@]:${BACKUP_LIMIT}}"; do
         rm -f "${OLD_BACKUP}"

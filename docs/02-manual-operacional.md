@@ -399,6 +399,32 @@ Caminhos importantes:
 - logs: `~/Library/Logs/Orquestra`
 - handoff: `.codex/memory/orquestra-continuity.md`
 
+## Instalacao, verificacao e remocao
+
+Para um Mac novo, use o instalador completo:
+
+```bash
+./scripts/install_orquestra_macos_full.sh --check-only
+./scripts/install_orquestra_macos_full.sh
+```
+
+Para auditar dependencias e providers:
+
+```bash
+./scripts/check_orquestra_macos_installation.sh --check-only
+```
+
+Para desinstalar com selecao de app, runtime, memorias, OSINT, workspace e dependencias opcionais:
+
+```bash
+./scripts/uninstall_orquestra_macos_full.sh --dry-run
+./scripts/uninstall_orquestra_macos_full.sh --mode safe
+```
+
+Guia completo:
+
+- [docs/05-instalador-completo-macos.md](./05-instalador-completo-macos.md)
+
 Retomada com baixo contexto:
 
 1. leia `AGENTS.md`
