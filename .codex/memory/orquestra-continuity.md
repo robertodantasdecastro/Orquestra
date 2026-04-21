@@ -1,7 +1,7 @@
 # Orquestra Continuity
 
-- Branch atual: `codex/orquestra-graphical-installer`
-- Último commit base: `64df030`
+- Branch atual: `main`
+- Último commit de implementação: `010ac27`
 - Etapa concluída: `Instalador/desinstalador gráfico macOS V1, Settings Center base, Storage Fabric local/frio, Keychain, router interno e logo padrão`
 - Estado esperado do worktree após checkpoint: `limpo após commit e push desta etapa`
 - Validações executadas:

@@ -16,13 +16,13 @@ Quando uma sessao do Codex for interrompida, nao e necessario reler toda a threa
 A branch atual da etapa e:
 
 ```text
-codex/orquestra-graphical-installer
+main
 ```
 
-O ultimo commit base antes desta etapa era:
+O ultimo commit de implementacao desta etapa e:
 
 ```text
-64df030
+010ac27
 ```
 
 O ciclo atual adiciona:
