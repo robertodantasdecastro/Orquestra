@@ -53,6 +53,13 @@ O ciclo atual em `main` agora inclui, alem da paridade alta anterior:
 - compactacao de contexto
 - planner hibrido
 - workflows locais multi-step
+- `OSINT Lab` com:
+  - busca web nativa
+  - conectores administráveis
+  - source registry
+  - evidencias e claims rastreáveis
+  - promocao para memoria com proveniencia preservada
+  - uso de evidencias no `Assistant Workspace` e no `rag/query`
 - desktop macOS com instalador/desinstalador
 - README e docs reescritos para a superficie atual do produto
 - `Train Plane` remoto dedicado com:
@@ -66,11 +73,12 @@ O ciclo atual em `main` agora inclui, alem da paridade alta anterior:
 ## O que ainda falta para encerrar o processo mais amplo
 Os proximos itens, fora do nucleo ja entregue, sao:
 
-1. validar manualmente o `Train Plane` com `LM Studio` local como baseline real
-2. validar manualmente o `Train Plane` com um provider real por `API key`
-3. substituir o modo remoto simulado por integracoes reais `S3 multipart + CloudWatch + SSM`
-4. OCR/transcricao opcional mais rica para assets multimodais
-5. assinatura/notarizacao para distribuicao publica
+1. validar manualmente o `OSINT Lab` com providers reais e, quando necessario, proxy Tor configurado
+2. validar manualmente o `Train Plane` com `LM Studio` local como baseline real
+3. validar manualmente o `Train Plane` com um provider real por `API key`
+4. substituir o modo remoto simulado por integracoes reais `S3 multipart + CloudWatch + SSM`
+5. OCR/transcricao opcional mais rica para assets multimodais
+6. assinatura/notarizacao para distribuicao publica
 
 ## Nova base para o proximo ciclo
 Antes de habilitar providers reais, use:

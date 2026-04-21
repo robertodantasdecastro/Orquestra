@@ -37,6 +37,7 @@ from .models import (
     WorkspaceInsight,
     WorkspaceScan,
 )
+from .osint import OsintService
 from .planner import PlannerService
 from .rag_memory import RagMemoryService
 from .runtime_state import runtime_backup_dir, runtime_install_dir
@@ -186,6 +187,13 @@ class RagQueryOptions:
     task_context_enabled: bool = True
     memory_selector_mode: str = "hybrid"
     context_budget: int | None = None
+    include_osint_evidence: bool = False
+    investigation_id: str | None = None
+    evidence_budget: int = 4
+    fresh_web_enabled: bool = False
+    source_registry_ids: list[str] | None = None
+    enabled_connector_ids: list[str] | None = None
+    via_tor: bool = False
 
 
 class LocalRagEngine:
@@ -194,6 +202,7 @@ class LocalRagEngine:
         self.paths = RagPaths.load(settings.workspace_root)
         self.memory_graph = MemoryGraphService(settings)
         self.memory_recall = MemoryRecallService(settings)
+        self.osint_service = OsintService(settings)
         self.planner = PlannerService()
         self.workspace_service = WorkspaceService(settings)
 
@@ -203,6 +212,15 @@ class LocalRagEngine:
         context_sections: list[tuple[str, str]] = []
         workspace_context: dict[str, Any] = {"items": [], "context": "", "citations": []}
         legacy_sources: list[dict[str, Any]] = []
+        osint_bundle: dict[str, Any] = {
+            "investigation_id": options.investigation_id,
+            "context": "",
+            "citations": [],
+            "evidence": [],
+            "fresh_results": [],
+            "status": "disabled",
+            "selector_mode": "osint_hybrid",
+        }
         session_snapshot: dict[str, Any] | None = None
         chat_session = None
         if options.session_id:
@@ -211,6 +229,19 @@ class LocalRagEngine:
             chat_session = session.get(ChatSession, options.session_id)
         if chat_session is not None:
             context_sections.append(("Perfil da sessão", profile_prompt_section(get_session_profile(chat_session))))
+        if chat_session is not None and options.compaction_enabled:
+            session_snapshot = self.memory_graph.build_context_snapshot(
+                session,
+                chat_session,
+                context_budget=options.context_budget or options.max_context_chars,
+            )
+            snapshot_text = str(session_snapshot.get("context_text", "")).strip()
+            if snapshot_text:
+                context_sections.append(("Snapshot compacto", snapshot_text))
+            if options.planner_enabled and options.task_context_enabled:
+                planner_context = self.planner.task_prompt_context(session, chat_session.id)
+                if planner_context:
+                    context_sections.append(("Planner ativo", planner_context))
         if options.memory_enabled:
             rag_memory_payload = self.memory_recall.recall(
                 session,
@@ -227,19 +258,22 @@ class LocalRagEngine:
             )
             if memory_context:
                 context_sections.append(("Memória relevante", memory_context))
-        if chat_session is not None and options.compaction_enabled:
-            session_snapshot = self.memory_graph.build_context_snapshot(
+        if options.include_osint_evidence:
+            osint_bundle = self.osint_service.build_context_bundle(
                 session,
-                chat_session,
-                context_budget=options.context_budget or options.max_context_chars,
+                query=options.question,
+                project_id=project_id,
+                session_id=options.session_id,
+                investigation_id=options.investigation_id,
+                fresh_web_enabled=options.fresh_web_enabled,
+                evidence_enabled=True,
+                enabled_connector_ids=options.enabled_connector_ids,
+                source_registry_ids=options.source_registry_ids,
+                via_tor=options.via_tor,
+                limit=max(1, options.evidence_budget),
             )
-            snapshot_text = str(session_snapshot.get("context_text", "")).strip()
-            if snapshot_text:
-                context_sections.append(("Snapshot compacto", snapshot_text))
-            if options.planner_enabled and options.task_context_enabled:
-                planner_context = self.planner.task_prompt_context(session, chat_session.id)
-                if planner_context:
-                    context_sections.append(("Planner ativo", planner_context))
+            if osint_bundle.get("context"):
+                context_sections.append(("OSINT evidence", str(osint_bundle["context"])))
         if options.include_workspace:
             workspace_context = self.workspace_service.build_context_snippet(
                 session,
@@ -275,10 +309,14 @@ class LocalRagEngine:
         )
         result["rag_memory"] = rag_memory_payload
         result["session_snapshot"] = session_snapshot
+        result["osint"] = osint_bundle
         result["workspace_context"] = workspace_context
         result["legacy_sources"] = legacy_sources
         result["selector_mode"] = selector_mode
         result["context_sections"] = [{"title": title, "content": content} for title, content in context_sections if content]
+        osint_citations = list(osint_bundle.get("citations", []))
+        if osint_citations:
+            result["citations"] = osint_citations + list(result.get("citations", []))
         if options.remember and options.session_id and result.get("answer"):
             self.memory_graph.create_training_candidate(
                 session,

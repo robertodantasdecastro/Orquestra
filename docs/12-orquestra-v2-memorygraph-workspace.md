@@ -28,6 +28,9 @@ Este documento descreve a camada tecnica que sustenta:
 - `orquestra_ai/workflow_engine.py`
 - `orquestra_ai/operations.py`
 
+### OSINT
+- `orquestra_ai/osint.py`
+
 ### Workspace
 - `orquestra_ai/workspace.py`
 
@@ -84,12 +87,18 @@ Cada sessao guarda em `metadata_json`:
 - SQLite como base estruturada
 - `memdir` como projecao em arquivos
 - `orquestra_memory_v1` como indice vetorial principal
+- `orquestra_osint_evidence_v1` como indice vetorial de evidencias OSINT
 
 ### Destinos apos aprovacao
 Ao aprovar um candidato, o Orquestra materializa:
 1. banco local
 2. arquivo projetado
 3. indice vetorial
+
+Quando a origem e `OSINT`, a proveniencia tambem e mantida em:
+- `MemoryRecord.metadata_json`
+- projecao em arquivo
+- metadata do chunk vetorial em `orquestra_memory_v1`
 
 ### Estrutura do memdir
 - `experiments/orquestra/memorygraph/memdir/global`
@@ -141,9 +150,36 @@ O contexto agregado do chat e do RAG usa:
 2. snapshot compacto
 3. planner
 4. memoria
-5. workspace/fontes
-6. RAG legado
-7. mensagem atual
+5. OSINT evidence
+6. workspace/fontes
+7. RAG legado
+8. mensagem atual
+
+## OSINT nativo
+### Entidades
+- `OsintConnectorConfig`
+- `OsintSourceRegistryEntry`
+- `OsintInvestigation`
+- `OsintRun`
+- `OsintSource`
+- `OsintCapture`
+- `OsintEvidence`
+- `OsintClaim`
+- `OsintEntity`
+
+### Garantias operacionais
+- conectores administráveis seedados no bootstrap
+- configuracao persistida em `RuntimeMetadata`
+- busca/fetch nativos sem depender apenas do provider do chat
+- aprovacao de claim promovendo memoria rastreavel
+- export local de dataset apenas para claims aprovadas
+
+### Estrutura em disco
+- `experiments/orquestra/osint/investigations/<id>/sources`
+- `experiments/orquestra/osint/investigations/<id>/captures`
+- `experiments/orquestra/osint/investigations/<id>/evidence`
+- `experiments/orquestra/osint/investigations/<id>/claims`
+- `experiments/orquestra/osint/investigations/<id>/exports`
 
 ## Planner hibrido
 ### Entidades
@@ -250,6 +286,9 @@ O FastAPI agora usa `lifespan` para:
 Os testes e smokes atuais cobrem:
 - projecao banco/arquivo/vetor
 - fallback sem vetor
+- conectores OSINT administráveis
+- aprovacao de claim OSINT com proveniencia preservada
+- uso de evidencia OSINT no `chat/stream` e no `rag/query`
 - compactacao e `auto compact`
 - planner com dependencias
 - workflow feliz

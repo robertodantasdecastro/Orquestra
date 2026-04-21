@@ -75,6 +75,11 @@ class RagMemoryService:
         approved: bool = True,
     ) -> dict[str, Any]:
         metadata = _safe_json(record.metadata_json, {})
+        citations = metadata.get("citations", [])
+        source_url = str(metadata.get("source_url", ""))
+        if not source_url and isinstance(citations, list) and citations:
+            first_citation = citations[0] if isinstance(citations[0], dict) else {}
+            source_url = str(first_citation.get("source") or first_citation.get("url") or "")
         chunk = RagChunk(
             chunk_id=f"orquestra-memory:{record.id}",
             document_id=record.id,
@@ -91,6 +96,14 @@ class RagMemoryService:
                 "approved": approved,
                 "created_at": record.created_at.isoformat(),
                 "title": title or str(metadata.get("title", record.source)),
+                "channel": str(metadata.get("channel", "memory")),
+                "source_url": source_url,
+                "citations": citations if isinstance(citations, list) else [],
+                "claim_id": str(metadata.get("claim_id", "")),
+                "capture_id": str(metadata.get("capture_id", "")),
+                "evidence_ids": metadata.get("evidence_ids", []) if isinstance(metadata.get("evidence_ids", []), list) else [],
+                "validation_status": str(metadata.get("validation_status", "")),
+                "license_policy": str(metadata.get("license_policy", "")),
             },
         )
         try:

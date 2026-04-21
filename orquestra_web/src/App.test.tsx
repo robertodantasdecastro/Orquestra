@@ -10,6 +10,7 @@ const TASK_ID = "task-1";
 const TASK_DEP_ID = "task-2";
 const REMOTE_RUN_ID = "remote-run-1";
 const REMOTE_ARTIFACT_ID = "remote-artifact-1";
+const OSINT_INVESTIGATION_ID = "osint-1";
 
 function jsonResponse(payload: unknown) {
   return Promise.resolve(
@@ -234,6 +235,389 @@ function mockApi(url: string) {
 
   if (path === "/api/workspace/scans") {
     return jsonResponse([]);
+  }
+
+  if (path === "/api/osint/config") {
+    return jsonResponse({
+      search_timeout_seconds: 20,
+      fetch_timeout_seconds: 20,
+      default_max_results: 5,
+      default_fetch_limit: 2,
+      default_evidence_limit: 4,
+      tor_proxy_url: "socks5h://127.0.0.1:9050",
+      store_result_metadata: true,
+      store_full_provider_snippet: false
+    });
+  }
+
+  if (path === "/api/osint/connectors" || path === "/api/osint/providers") {
+    return jsonResponse([
+      {
+        connector_id: "brave",
+        label: "Brave Search",
+        category: "search_provider",
+        connector_kind: "search_provider",
+        status: "ready",
+        description: "Busca geral com fallback nativo.",
+        enabled_global: true,
+        enabled_by_default: true,
+        effective_enabled: true,
+        requires_credential: true,
+        credential_env: "BRAVE_SEARCH_API_KEY",
+        credential_status: "configured_optional",
+        priority: 10,
+        health_status: "online",
+        allowed_modes: ["search", "fresh_web"],
+        training_allowed: false,
+        retention_policy: "metadata_only",
+        via_tor_allowed: false,
+        project_overrides: {},
+        metadata: {},
+        ready: true
+      },
+      {
+        connector_id: "wikidata",
+        label: "Wikidata",
+        category: "structured_public_api",
+        connector_kind: "structured_public_api",
+        status: "ready",
+        description: "Entidades públicas.",
+        enabled_global: true,
+        enabled_by_default: true,
+        effective_enabled: true,
+        requires_credential: false,
+        credential_status: "not_required",
+        priority: 40,
+        health_status: "online",
+        allowed_modes: ["search", "fetch"],
+        training_allowed: false,
+        retention_policy: "metadata_only",
+        via_tor_allowed: false,
+        project_overrides: {},
+        metadata: {},
+        ready: true
+      }
+    ]);
+  }
+
+  if (path === "/api/osint/source-registry") {
+    return jsonResponse([
+      {
+        id: "registry-1",
+        source_key: "manual-orquestra",
+        connector_id: "brave",
+        title: "Manual Orquestra Seed",
+        category: "manual_seed",
+        access_type: "web",
+        base_url: "https://example.test/orquestra",
+        description: "Fonte manual para o laboratório de OSINT.",
+        retention_policy: "metadata_only",
+        training_allowed: false,
+        reliability: 0.8,
+        jurisdiction_tags: ["global"],
+        preset_tags: ["osint"],
+        tor_supported: false,
+        api_auth_required: false,
+        robots_sensitive: false,
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
+  if (path === "/api/osint/investigations") {
+    return jsonResponse([
+      {
+        id: OSINT_INVESTIGATION_ID,
+        project_id: "project-1",
+        session_id: SESSION_ID,
+        title: "Investigação Orquestra",
+        objective: "Coletar evidências rastreáveis e aprovar claims relevantes.",
+        target_entity: "Orquestra AI",
+        language: "pt-BR",
+        jurisdiction: "global",
+        mode: "balanced",
+        status: "active",
+        enabled_connector_ids: ["brave", "wikidata"],
+        source_registry_ids: ["registry-1"],
+        allowed_domains: [],
+        blocked_domains: [],
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
+  if (path === `/api/osint/investigations/${OSINT_INVESTIGATION_ID}`) {
+    return jsonResponse({
+      id: OSINT_INVESTIGATION_ID,
+      project_id: "project-1",
+      session_id: SESSION_ID,
+      title: "Investigação Orquestra",
+      objective: "Coletar evidências rastreáveis e aprovar claims relevantes.",
+      target_entity: "Orquestra AI",
+      language: "pt-BR",
+      jurisdiction: "global",
+      mode: "balanced",
+      status: "active",
+      enabled_connector_ids: ["brave", "wikidata"],
+      source_registry_ids: ["registry-1"],
+      allowed_domains: [],
+      blocked_domains: [],
+      metadata: {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  if (path === `/api/osint/investigations/${OSINT_INVESTIGATION_ID}/runs`) {
+    return jsonResponse([
+      {
+        id: "osint-run-1",
+        investigation_id: OSINT_INVESTIGATION_ID,
+        run_kind: "search",
+        status: "succeeded",
+        query: "orquestra ai memory graph",
+        connector_ids: ["brave"],
+        via_tor: false,
+        log_path: "/tmp/osint-run.log",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
+  if (path === "/api/osint/evidence") {
+    return jsonResponse([
+      {
+        id: "evidence-1",
+        investigation_id: OSINT_INVESTIGATION_ID,
+        source_id: "source-1",
+        capture_id: "capture-1",
+        title: "Orquestra Evidence",
+        content: "O Orquestra mantém memória local-first com aprovação explícita.",
+        validation_status: "approved",
+        source_quality: 0.82,
+        entity_ids: [],
+        claim_ids: ["claim-1"],
+        metadata: { url: "https://example.test/orquestra" },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
+  if (path === "/api/osint/claims") {
+    return jsonResponse([
+      {
+        id: "claim-1",
+        investigation_id: OSINT_INVESTIGATION_ID,
+        evidence_ids: ["evidence-1"],
+        title: "Claim: memória local-first",
+        content: "A memória do Orquestra é local-first e só promove conteúdo aprovado.",
+        confidence: 0.76,
+        status: "pending",
+        memory_record_id: null,
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
+  if (path === `/api/osint/investigations/${OSINT_INVESTIGATION_ID}/plan`) {
+    return jsonResponse({
+      investigation: {
+        id: OSINT_INVESTIGATION_ID,
+        project_id: "project-1",
+        session_id: SESSION_ID,
+        title: "Investigação Orquestra",
+        objective: "Coletar evidências rastreáveis e aprovar claims relevantes.",
+        target_entity: "Orquestra AI",
+        language: "pt-BR",
+        jurisdiction: "global",
+        mode: "balanced",
+        status: "active",
+        enabled_connector_ids: ["brave", "wikidata"],
+        source_registry_ids: ["registry-1"],
+        allowed_domains: [],
+        blocked_domains: [],
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      queries: ["orquestra ai memory graph", "\"orquestra ai\" filetype:pdf"]
+    });
+  }
+
+  if (path === `/api/osint/investigations/${OSINT_INVESTIGATION_ID}/search`) {
+    return jsonResponse({
+      run: {
+        id: "osint-run-search",
+        investigation_id: OSINT_INVESTIGATION_ID,
+        run_kind: "search",
+        status: "succeeded",
+        query: "orquestra ai memory graph",
+        connector_ids: ["brave"],
+        via_tor: false,
+        log_path: "/tmp/osint-search.log",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      query: "orquestra ai memory graph",
+      results: [
+        {
+          id: "source-1",
+          investigation_id: OSINT_INVESTIGATION_ID,
+          run_id: "osint-run-search",
+          registry_entry_id: "registry-1",
+          connector_id: "brave",
+          provider: "brave",
+          title: "Orquestra Evidence",
+          url: "https://example.test/orquestra",
+          canonical_url: "https://example.test/orquestra",
+          snippet: "Resumo indexado para o OSINT Lab.",
+          rank: 0,
+          search_query: "orquestra ai memory graph",
+          metadata: {},
+          created_at: new Date().toISOString()
+        }
+      ],
+      skipped: [],
+      errors: [],
+      connectors_used: ["brave"],
+      connector_states: []
+    });
+  }
+
+  if (path === `/api/osint/investigations/${OSINT_INVESTIGATION_ID}/fetch`) {
+    return jsonResponse({
+      run: {
+        id: "osint-run-fetch",
+        investigation_id: OSINT_INVESTIGATION_ID,
+        run_kind: "fetch",
+        status: "succeeded",
+        query: "https://example.test/orquestra",
+        connector_ids: ["brave"],
+        via_tor: false,
+        log_path: "/tmp/osint-fetch.log",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      capture: {
+        id: "capture-1",
+        investigation_id: OSINT_INVESTIGATION_ID,
+        source_id: "source-1",
+        connector_id: "brave",
+        url: "https://example.test/orquestra",
+        canonical_url: "https://example.test/orquestra",
+        title: "Orquestra Evidence",
+        content_type: "text/html",
+        content_hash: "abc123",
+        snapshot_path: "/tmp/capture.bin",
+        normalized_path: "/tmp/capture.md",
+        fetched_at: new Date().toISOString(),
+        via_tor: false,
+        license_policy: "metadata_only",
+        metadata: {},
+        created_at: new Date().toISOString()
+      },
+      evidence: [
+        {
+          id: "evidence-1",
+          investigation_id: OSINT_INVESTIGATION_ID,
+          source_id: "source-1",
+          capture_id: "capture-1",
+          title: "Orquestra Evidence",
+          content: "O Orquestra mantém memória local-first com aprovação explícita.",
+          validation_status: "pending",
+          source_quality: 0.82,
+          entity_ids: [],
+          claim_ids: ["claim-1"],
+          metadata: { url: "https://example.test/orquestra" },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      ],
+      claims: [
+        {
+          id: "claim-1",
+          investigation_id: OSINT_INVESTIGATION_ID,
+          evidence_ids: ["evidence-1"],
+          title: "Claim: memória local-first",
+          content: "A memória do Orquestra é local-first e só promove conteúdo aprovado.",
+          confidence: 0.76,
+          status: "pending",
+          metadata: {},
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      ]
+    });
+  }
+
+  if (path === "/api/osint/evidence/evidence-1/approve") {
+    return jsonResponse({
+      id: "evidence-1",
+      investigation_id: OSINT_INVESTIGATION_ID,
+      source_id: "source-1",
+      capture_id: "capture-1",
+      title: "Orquestra Evidence",
+      content: "O Orquestra mantém memória local-first com aprovação explícita.",
+      validation_status: "approved",
+      source_quality: 0.82,
+      entity_ids: [],
+      claim_ids: ["claim-1"],
+      metadata: { url: "https://example.test/orquestra" },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    });
+  }
+
+  if (path === "/api/osint/claims/claim-1/approve") {
+    return jsonResponse({
+      claim: {
+        id: "claim-1",
+        investigation_id: OSINT_INVESTIGATION_ID,
+        evidence_ids: ["evidence-1"],
+        title: "Claim: memória local-first",
+        content: "A memória do Orquestra é local-first e só promove conteúdo aprovado.",
+        confidence: 0.76,
+        status: "approved",
+        memory_record_id: "memory-1",
+        metadata: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      },
+      memory_record: {
+        id: "memory-1",
+        project_id: "project-1",
+        session_id: SESSION_ID,
+        scope: "source_fact",
+        memory_kind: "reference",
+        source: "osint_claim:claim-1",
+        content: "A memória do Orquestra é local-first e só promove conteúdo aprovado.",
+        confidence: 0.76,
+        approved_for_training: false,
+        metadata: { channel: "osint", source_url: "https://example.test/orquestra" },
+        created_at: new Date().toISOString()
+      }
+    });
+  }
+
+  if (path === "/api/osint/export/dataset-bundle") {
+    return jsonResponse({
+      investigation_id: OSINT_INVESTIGATION_ID,
+      record_count: 1,
+      skipped_count: 0,
+      export_path: "/tmp/osint-dataset.json",
+      records: [{ instruction: "Claim: memória local-first", response: "A memória do Orquestra é local-first." }]
+    });
   }
 
   if (path === "/api/remote/trainplane/config") {
@@ -659,5 +1043,18 @@ describe("App", () => {
     expect(screen.getByText(/EC2 train plane, avaliação comparativa/i)).toBeInTheDocument();
     expect(screen.getByText(/Sincronizar base model/i)).toBeInTheDocument();
     expect(screen.getByText(/Rodar comparison/i)).toBeInTheDocument();
+  });
+
+  it("mostra o OSINT Lab com conectores, evidências e claims aprováveis", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /OSINT Lab/i }));
+
+    await waitFor(() => expect(screen.getByText("Busca web, fetch e evidência rastreável")).toBeInTheDocument());
+    expect(screen.getAllByText("Investigação Orquestra").length).toBeGreaterThan(0);
+    expect(screen.getByText("Brave Search")).toBeInTheDocument();
+    expect(screen.getByText("Orquestra Evidence")).toBeInTheDocument();
+    expect(screen.getByText("Claim: memória local-first")).toBeInTheDocument();
+    expect(screen.getByText(/Adicionar seed/i)).toBeInTheDocument();
   });
 });

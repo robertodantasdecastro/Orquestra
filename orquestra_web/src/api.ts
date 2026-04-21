@@ -610,6 +610,164 @@ export type ConnectorDescriptor = {
   ready: boolean;
 };
 
+export type OsintConfig = {
+  search_timeout_seconds: number;
+  fetch_timeout_seconds: number;
+  default_max_results: number;
+  default_fetch_limit: number;
+  default_evidence_limit: number;
+  tor_proxy_url: string;
+  store_result_metadata: boolean;
+  store_full_provider_snippet: boolean;
+};
+
+export type OsintConnectorState = {
+  connector_id: string;
+  label: string;
+  category: string;
+  connector_kind: string;
+  status: string;
+  description: string;
+  enabled_global: boolean;
+  enabled_by_default: boolean;
+  effective_enabled: boolean;
+  requires_credential: boolean;
+  credential_env?: string | null;
+  credential_status: string;
+  priority: number;
+  health_status: string;
+  allowed_modes: string[];
+  training_allowed: boolean;
+  retention_policy: string;
+  via_tor_allowed: boolean;
+  project_overrides: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  ready: boolean;
+};
+
+export type OsintSourceRegistryEntry = {
+  id: string;
+  source_key: string;
+  connector_id?: string | null;
+  title: string;
+  category: string;
+  access_type: string;
+  base_url: string;
+  description: string;
+  retention_policy: string;
+  training_allowed: boolean;
+  reliability: number;
+  jurisdiction_tags: string[];
+  preset_tags: string[];
+  tor_supported: boolean;
+  api_auth_required: boolean;
+  robots_sensitive: boolean;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OsintInvestigation = {
+  id: string;
+  project_id?: string | null;
+  session_id?: string | null;
+  title: string;
+  objective: string;
+  target_entity: string;
+  language: string;
+  jurisdiction: string;
+  mode: string;
+  status: string;
+  enabled_connector_ids: string[];
+  source_registry_ids: string[];
+  allowed_domains: string[];
+  blocked_domains: string[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OsintRun = {
+  id: string;
+  investigation_id: string;
+  run_kind: string;
+  status: string;
+  query: string;
+  connector_ids: string[];
+  via_tor: boolean;
+  log_path: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OsintSource = {
+  id: string;
+  investigation_id?: string | null;
+  run_id?: string | null;
+  registry_entry_id?: string | null;
+  connector_id: string;
+  provider: string;
+  title: string;
+  url: string;
+  canonical_url: string;
+  snippet: string;
+  rank: number;
+  search_query: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type OsintCapture = {
+  id: string;
+  investigation_id?: string | null;
+  source_id?: string | null;
+  connector_id: string;
+  url: string;
+  canonical_url: string;
+  title: string;
+  content_type: string;
+  content_hash: string;
+  snapshot_path: string;
+  normalized_path: string;
+  published_at?: string | null;
+  fetched_at: string;
+  via_tor: boolean;
+  license_policy: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
+export type OsintEvidence = {
+  id: string;
+  investigation_id: string;
+  source_id?: string | null;
+  capture_id?: string | null;
+  title: string;
+  content: string;
+  validation_status: string;
+  source_quality: number;
+  entity_ids: string[];
+  claim_ids: string[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OsintClaim = {
+  id: string;
+  investigation_id: string;
+  evidence_ids: string[];
+  title: string;
+  content: string;
+  confidence: number;
+  status: string;
+  memory_record_id?: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
 export type RagResult = {
   answer: string;
   model_name?: string;
@@ -623,6 +781,15 @@ export type RagResult = {
     collection_name: string;
     status: string;
     error?: string;
+  };
+  osint?: {
+    investigation_id?: string | null;
+    context: string;
+    citations: Array<Record<string, unknown>>;
+    evidence: OsintEvidence[];
+    fresh_results: OsintSource[];
+    status: string;
+    selector_mode: string;
   };
 };
 
@@ -1041,6 +1208,14 @@ export async function queryRag(payload: {
   task_context_enabled?: boolean;
   memory_selector_mode?: string;
   context_budget?: number;
+  include_osint_evidence?: boolean;
+  investigation_id?: string | null;
+  claim_status?: string;
+  evidence_budget?: number;
+  fresh_web_enabled?: boolean;
+  source_registry_ids?: string[];
+  enabled_connector_ids?: string[];
+  via_tor?: boolean;
 }) {
   return request<RagResult>("/api/rag/query", { method: "POST", body: JSON.stringify(payload) });
 }
@@ -1314,6 +1489,274 @@ export async function listConnectors() {
   return request<ConnectorDescriptor[]>("/api/connectors");
 }
 
+export async function getOsintConfig() {
+  return request<OsintConfig>("/api/osint/config");
+}
+
+export async function updateOsintConfig(payload: Partial<OsintConfig>) {
+  return request<OsintConfig>("/api/osint/config", {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function listOsintProviders(projectId?: string, investigationId?: string) {
+  const params = new URLSearchParams();
+  if (projectId) params.set("project_id", projectId);
+  if (investigationId) params.set("investigation_id", investigationId);
+  const query = params.toString();
+  return request<OsintConnectorState[]>(`/api/osint/providers${query ? `?${query}` : ""}`);
+}
+
+export async function listOsintConnectors(projectId?: string, investigationId?: string) {
+  const params = new URLSearchParams();
+  if (projectId) params.set("project_id", projectId);
+  if (investigationId) params.set("investigation_id", investigationId);
+  const query = params.toString();
+  return request<OsintConnectorState[]>(`/api/osint/connectors${query ? `?${query}` : ""}`);
+}
+
+export async function patchOsintConnector(connectorId: string, payload: {
+  enabled_global?: boolean;
+  enabled_by_default?: boolean;
+  priority?: number;
+  training_allowed?: boolean;
+  retention_policy?: string;
+  via_tor_allowed?: boolean;
+  health_status?: string;
+  project_overrides?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<OsintConnectorState>(`/api/osint/connectors/${connectorId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function enableOsintConnector(connectorId: string) {
+  return request<OsintConnectorState>(`/api/osint/connectors/${connectorId}/enable`, { method: "POST" });
+}
+
+export async function disableOsintConnector(connectorId: string) {
+  return request<OsintConnectorState>(`/api/osint/connectors/${connectorId}/disable`, { method: "POST" });
+}
+
+export async function listOsintSourceRegistry() {
+  return request<OsintSourceRegistryEntry[]>("/api/osint/source-registry");
+}
+
+export async function createOsintSourceRegistryEntry(payload: {
+  source_key: string;
+  connector_id?: string | null;
+  title: string;
+  category?: string;
+  access_type?: string;
+  base_url?: string;
+  description?: string;
+  retention_policy?: string;
+  training_allowed?: boolean;
+  reliability?: number;
+  jurisdiction_tags?: string[];
+  preset_tags?: string[];
+  tor_supported?: boolean;
+  api_auth_required?: boolean;
+  robots_sensitive?: boolean;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<OsintSourceRegistryEntry>("/api/osint/source-registry", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function patchOsintSourceRegistryEntry(entryId: string, payload: {
+  source_key: string;
+  connector_id?: string | null;
+  title: string;
+  category?: string;
+  access_type?: string;
+  base_url?: string;
+  description?: string;
+  retention_policy?: string;
+  training_allowed?: boolean;
+  reliability?: number;
+  jurisdiction_tags?: string[];
+  preset_tags?: string[];
+  tor_supported?: boolean;
+  api_auth_required?: boolean;
+  robots_sensitive?: boolean;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<OsintSourceRegistryEntry>(`/api/osint/source-registry/${entryId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function listOsintInvestigations(projectId?: string, sessionId?: string) {
+  const params = new URLSearchParams();
+  if (projectId) params.set("project_id", projectId);
+  if (sessionId) params.set("session_id", sessionId);
+  const query = params.toString();
+  return request<OsintInvestigation[]>(`/api/osint/investigations${query ? `?${query}` : ""}`);
+}
+
+export async function createOsintInvestigation(payload: {
+  project_id?: string | null;
+  session_id?: string | null;
+  title: string;
+  objective?: string;
+  target_entity?: string;
+  language?: string;
+  jurisdiction?: string;
+  mode?: string;
+  enabled_connector_ids?: string[];
+  source_registry_ids?: string[];
+  allowed_domains?: string[];
+  blocked_domains?: string[];
+  metadata?: Record<string, unknown>;
+}) {
+  return request<OsintInvestigation>("/api/osint/investigations", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function getOsintInvestigation(investigationId: string) {
+  return request<OsintInvestigation>(`/api/osint/investigations/${investigationId}`);
+}
+
+export async function patchOsintInvestigation(investigationId: string, payload: {
+  title?: string;
+  objective?: string;
+  target_entity?: string;
+  language?: string;
+  jurisdiction?: string;
+  mode?: string;
+  status?: string;
+  enabled_connector_ids?: string[];
+  source_registry_ids?: string[];
+  allowed_domains?: string[];
+  blocked_domains?: string[];
+  metadata?: Record<string, unknown>;
+}) {
+  return request<OsintInvestigation>(`/api/osint/investigations/${investigationId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function planOsintInvestigation(investigationId: string, query?: string) {
+  return request<{ investigation: OsintInvestigation; queries: string[] }>(`/api/osint/investigations/${investigationId}/plan`, {
+    method: "POST",
+    body: JSON.stringify({ query })
+  });
+}
+
+export async function searchOsintInvestigation(
+  investigationId: string,
+  payload: {
+    query: string;
+    connector_ids?: string[];
+    source_registry_ids?: string[];
+    via_tor?: boolean;
+    limit?: number;
+  }
+) {
+  return request<{
+    run: OsintRun;
+    query: string;
+    results: OsintSource[];
+    skipped: Array<Record<string, unknown>>;
+    errors: Array<Record<string, unknown>>;
+    connectors_used: string[];
+    connector_states: OsintConnectorState[];
+  }>(`/api/osint/investigations/${investigationId}/search`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function fetchOsintInvestigation(
+  investigationId: string,
+  payload: {
+    source_id?: string | null;
+    url?: string | null;
+    via_tor?: boolean;
+    follow_same_host_redirects_only?: boolean;
+  }
+) {
+  return request<{
+    run: OsintRun;
+    capture: OsintCapture;
+    evidence: OsintEvidence[];
+    claims: OsintClaim[];
+    status?: string;
+    error?: string;
+  }>(`/api/osint/investigations/${investigationId}/fetch`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function crawlOsintInvestigation(
+  investigationId: string,
+  payload: {
+    source_ids: string[];
+    via_tor?: boolean;
+    follow_same_host_redirects_only?: boolean;
+  }
+) {
+  return request<{ investigation_id: string; fetches: Array<Record<string, unknown>>; count: number }>(`/api/osint/investigations/${investigationId}/crawl`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function listOsintRuns(investigationId: string) {
+  return request<OsintRun[]>(`/api/osint/investigations/${investigationId}/runs`);
+}
+
+export async function listOsintEvidence(investigationId?: string, validationStatus?: string) {
+  const params = new URLSearchParams();
+  if (investigationId) params.set("investigation_id", investigationId);
+  if (validationStatus) params.set("validation_status", validationStatus);
+  const query = params.toString();
+  return request<OsintEvidence[]>(`/api/osint/evidence${query ? `?${query}` : ""}`);
+}
+
+export async function approveOsintEvidence(evidenceId: string) {
+  return request<OsintEvidence>(`/api/osint/evidence/${evidenceId}/approve`, { method: "POST" });
+}
+
+export async function listOsintClaims(investigationId?: string, status?: string) {
+  const params = new URLSearchParams();
+  if (investigationId) params.set("investigation_id", investigationId);
+  if (status) params.set("status", status);
+  const query = params.toString();
+  return request<OsintClaim[]>(`/api/osint/claims${query ? `?${query}` : ""}`);
+}
+
+export async function approveOsintClaim(claimId: string, payload?: { create_memory?: boolean }) {
+  return request<{ claim: OsintClaim; memory_record?: MemoryRecord | null; projection?: Record<string, unknown> | null; rag_index?: Record<string, unknown> | null }>(
+    `/api/osint/claims/${claimId}/approve`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload ?? {})
+    }
+  );
+}
+
+export async function exportOsintDatasetBundle(payload: { investigation_id: string }) {
+  return request<{ investigation_id: string; record_count: number; skipped_count: number; export_path: string; records: Array<Record<string, unknown>> }>(
+    "/api/osint/export/dataset-bundle",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }
+  );
+}
+
 export async function createDeployment(projectId: string, payload: { artifact_id: string; environment?: string; notes?: string }) {
   return request<Record<string, unknown>>(`/api/projects/${projectId}/deployments`, {
     method: "POST",
@@ -1392,6 +1835,13 @@ export async function streamChat(
     task_context_enabled?: boolean;
     memory_selector_mode?: string;
     context_budget?: number;
+    investigation_id?: string | null;
+    osint_mode?: boolean;
+    fresh_web_enabled?: boolean;
+    evidence_enabled?: boolean;
+    source_registry_ids?: string[];
+    enabled_connector_ids?: string[];
+    via_tor?: boolean;
   },
   handlers: {
     onSession: (payload: { session_id: string; provider_id: string; model_name: string }) => void;
@@ -1404,6 +1854,7 @@ export async function streamChat(
       latency_seconds: number;
       memory_candidates_created?: number;
       memory_recall_count?: number;
+      osint_evidence_count?: number;
     }) => void;
   }
 ) {

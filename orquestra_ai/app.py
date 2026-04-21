@@ -31,6 +31,11 @@ from .models import (
     MemoryReviewCandidate,
     MemoryTopic,
     ModelArtifact,
+    OsintClaim,
+    OsintConnectorConfig,
+    OsintEvidence,
+    OsintInvestigation,
+    OsintSourceRegistryEntry,
     PlannerSnapshot,
     Project,
     ProjectDeployment,
@@ -77,6 +82,7 @@ from .services import (
     workspace_insight_to_dict,
     workspace_scan_to_dict,
 )
+from .osint import OsintService, get_osint_config, save_osint_config, seed_osint_state
 from .session_profile import get_session_metadata, get_session_profile, profile_prompt_section, set_session_profile
 from .trainplane import (
     TrainPlaneClientError,
@@ -165,6 +171,13 @@ class ChatStreamRequest(BaseModel):
     task_context_enabled: bool | None = None
     memory_selector_mode: str | None = None
     context_budget: int | None = None
+    investigation_id: str | None = None
+    osint_mode: bool | None = None
+    fresh_web_enabled: bool | None = None
+    evidence_enabled: bool | None = None
+    source_registry_ids: list[str] = Field(default_factory=list)
+    enabled_connector_ids: list[str] = Field(default_factory=list)
+    via_tor: bool | None = None
 
 
 class MemoryUpsertRequest(BaseModel):
@@ -262,6 +275,120 @@ class RagQueryRequest(BaseModel):
     task_context_enabled: bool | None = None
     memory_selector_mode: str | None = None
     context_budget: int | None = None
+    include_osint_evidence: bool | None = None
+    investigation_id: str | None = None
+    claim_status: str | None = None
+    evidence_budget: int | None = None
+    fresh_web_enabled: bool | None = None
+    source_registry_ids: list[str] = Field(default_factory=list)
+    enabled_connector_ids: list[str] = Field(default_factory=list)
+    via_tor: bool | None = None
+
+
+class OsintConfigRequest(BaseModel):
+    search_timeout_seconds: int | None = None
+    fetch_timeout_seconds: int | None = None
+    default_max_results: int | None = None
+    default_fetch_limit: int | None = None
+    default_evidence_limit: int | None = None
+    tor_proxy_url: str | None = None
+    store_result_metadata: bool | None = None
+    store_full_provider_snippet: bool | None = None
+
+
+class OsintConnectorPatchRequest(BaseModel):
+    enabled_global: bool | None = None
+    enabled_by_default: bool | None = None
+    priority: int | None = None
+    training_allowed: bool | None = None
+    retention_policy: str | None = None
+    via_tor_allowed: bool | None = None
+    health_status: str | None = None
+    project_overrides: dict[str, object] | None = None
+    metadata: dict[str, object] | None = None
+
+
+class OsintSourceRegistryEntryRequest(BaseModel):
+    source_key: str
+    connector_id: str | None = None
+    title: str
+    category: str = "manual_seed"
+    access_type: str = "web"
+    base_url: str = ""
+    description: str = ""
+    retention_policy: str = "metadata_only"
+    training_allowed: bool = False
+    reliability: float = 0.5
+    jurisdiction_tags: list[str] = Field(default_factory=list)
+    preset_tags: list[str] = Field(default_factory=list)
+    tor_supported: bool = False
+    api_auth_required: bool = False
+    robots_sensitive: bool = False
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class OsintInvestigationCreateRequest(BaseModel):
+    project_id: str | None = None
+    session_id: str | None = None
+    title: str
+    objective: str = ""
+    target_entity: str = ""
+    language: str = "pt-BR"
+    jurisdiction: str = "global"
+    mode: str = "balanced"
+    enabled_connector_ids: list[str] = Field(default_factory=list)
+    source_registry_ids: list[str] = Field(default_factory=list)
+    allowed_domains: list[str] = Field(default_factory=list)
+    blocked_domains: list[str] = Field(default_factory=list)
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class OsintInvestigationPatchRequest(BaseModel):
+    title: str | None = None
+    objective: str | None = None
+    target_entity: str | None = None
+    language: str | None = None
+    jurisdiction: str | None = None
+    mode: str | None = None
+    status: str | None = None
+    enabled_connector_ids: list[str] | None = None
+    source_registry_ids: list[str] | None = None
+    allowed_domains: list[str] | None = None
+    blocked_domains: list[str] | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class OsintPlanRequest(BaseModel):
+    query: str | None = None
+
+
+class OsintSearchRequest(BaseModel):
+    query: str
+    connector_ids: list[str] = Field(default_factory=list)
+    source_registry_ids: list[str] = Field(default_factory=list)
+    via_tor: bool = False
+    limit: int | None = None
+
+
+class OsintFetchRequest(BaseModel):
+    source_id: str | None = None
+    url: str | None = None
+    via_tor: bool = False
+    follow_same_host_redirects_only: bool = False
+
+
+class OsintCrawlRequest(BaseModel):
+    source_ids: list[str] = Field(default_factory=list)
+    via_tor: bool = False
+    follow_same_host_redirects_only: bool = False
+
+
+class OsintClaimApproveRequest(BaseModel):
+    create_memory: bool = True
+
+
+class OsintExportRequest(BaseModel):
+    investigation_id: str
 
 
 class JobCreateRequest(BaseModel):
@@ -463,6 +590,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     memory_graph = MemoryGraphService(app_settings)
     rag_memory = RagMemoryService(app_settings)
     memory_recall = MemoryRecallService(app_settings)
+    osint_service = OsintService(app_settings)
     planner = PlannerService()
     candidate_extractor = MemoryCandidateExtractor()
     workspace_service = WorkspaceService(app_settings)
@@ -480,6 +608,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         init_database(engine)
         with Session(engine) as session:
             seed_default_state(session, app_settings)
+            seed_osint_state(session)
             workspace_service.gc_derivatives(session)
             session.commit()
 
@@ -512,6 +641,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     app.state.memory_graph = memory_graph
     app.state.rag_memory = rag_memory
     app.state.memory_recall = memory_recall
+    app.state.osint_service = osint_service
     app.state.planner = planner
     app.state.candidate_extractor = candidate_extractor
     app.state.workspace_service = workspace_service
@@ -750,6 +880,287 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     @app.get("/api/connectors")
     def list_connectors() -> list[dict[str, object]]:
         return [item.to_dict() for item in list_connector_descriptors()]
+
+    @app.get("/api/osint/config")
+    def get_osint_runtime_config(session: Session = Depends(get_session)) -> dict[str, object]:
+        return get_osint_config(session)
+
+    @app.put("/api/osint/config")
+    def update_osint_runtime_config(payload: OsintConfigRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        updates = payload.model_dump(exclude_none=True)
+        config = save_osint_config(session, updates)
+        session.commit()
+        return config
+
+    @app.get("/api/osint/providers")
+    def list_osint_providers(
+        project_id: str | None = None,
+        investigation_id: str | None = None,
+        session: Session = Depends(get_session),
+    ) -> list[dict[str, object]]:
+        connectors = osint_service.list_connectors(session, project_id=project_id, investigation_id=investigation_id)
+        return [item for item in connectors if item.get("category") == "search_provider"]
+
+    @app.get("/api/osint/connectors")
+    def list_osint_connectors(
+        project_id: str | None = None,
+        investigation_id: str | None = None,
+        session: Session = Depends(get_session),
+    ) -> list[dict[str, object]]:
+        return osint_service.list_connectors(session, project_id=project_id, investigation_id=investigation_id)
+
+    @app.patch("/api/osint/connectors/{connector_id}")
+    def patch_osint_connector(
+        connector_id: str,
+        payload: OsintConnectorPatchRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            updated = osint_service.update_connector(session, connector_id, **payload.model_dump(exclude_none=True))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Conector OSINT não encontrado.") from exc
+        session.commit()
+        return updated
+
+    @app.post("/api/osint/connectors/{connector_id}/enable")
+    def enable_osint_connector(connector_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        try:
+            updated = osint_service.update_connector(session, connector_id, enabled_global=True)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Conector OSINT não encontrado.") from exc
+        session.commit()
+        return updated
+
+    @app.post("/api/osint/connectors/{connector_id}/disable")
+    def disable_osint_connector(connector_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        try:
+            updated = osint_service.update_connector(session, connector_id, enabled_global=False)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Conector OSINT não encontrado.") from exc
+        session.commit()
+        return updated
+
+    @app.get("/api/osint/source-registry")
+    def list_osint_source_registry(session: Session = Depends(get_session)) -> list[dict[str, object]]:
+        return osint_service.list_registry(session)
+
+    @app.post("/api/osint/source-registry")
+    def create_osint_source_registry_entry(
+        payload: OsintSourceRegistryEntryRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            item = osint_service.upsert_registry_entry(session, payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        session.commit()
+        return item
+
+    @app.patch("/api/osint/source-registry/{entry_id}")
+    def patch_osint_source_registry_entry(
+        entry_id: str,
+        payload: OsintSourceRegistryEntryRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        row = session.get(OsintSourceRegistryEntry, entry_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Fonte do registry OSINT não encontrada.")
+        merged = payload.model_dump()
+        merged["source_key"] = row.source_key
+        item = osint_service.upsert_registry_entry(session, merged)
+        session.commit()
+        return item
+
+    @app.get("/api/osint/investigations")
+    def list_osint_investigations(
+        project_id: str | None = None,
+        session_id: str | None = None,
+        session: Session = Depends(get_session),
+    ) -> list[dict[str, object]]:
+        return osint_service.list_investigations(session, project_id=project_id, session_id=session_id)
+
+    @app.post("/api/osint/investigations")
+    def create_osint_investigation(
+        payload: OsintInvestigationCreateRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        investigation = osint_service.create_investigation(session, **payload.model_dump())
+        session.commit()
+        return investigation
+
+    @app.get("/api/osint/investigations/{investigation_id}")
+    def get_osint_investigation(investigation_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        row = session.get(OsintInvestigation, investigation_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Investigação OSINT não encontrada.")
+        return osint_service.investigation_to_dict(row)
+
+    @app.patch("/api/osint/investigations/{investigation_id}")
+    def patch_osint_investigation(
+        investigation_id: str,
+        payload: OsintInvestigationPatchRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            investigation = osint_service.update_investigation(session, investigation_id, payload.model_dump(exclude_unset=True))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Investigação OSINT não encontrada.") from exc
+        session.commit()
+        return investigation
+
+    @app.post("/api/osint/investigations/{investigation_id}/plan")
+    def plan_osint_investigation(
+        investigation_id: str,
+        payload: OsintPlanRequest | None = None,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            planned = osint_service.plan_queries(session, investigation_id, query=payload.query if payload else None)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Investigação OSINT não encontrada.") from exc
+        session.commit()
+        return planned
+
+    @app.post("/api/osint/investigations/{investigation_id}/search")
+    def search_osint_investigation(
+        investigation_id: str,
+        payload: OsintSearchRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            result = osint_service.search(
+                session,
+                investigation_id=investigation_id,
+                query=payload.query,
+                connector_ids=payload.connector_ids,
+                source_registry_ids=payload.source_registry_ids,
+                via_tor=payload.via_tor,
+                limit=payload.limit,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Investigação OSINT não encontrada.") from exc
+        session.commit()
+        return result
+
+    @app.post("/api/osint/investigations/{investigation_id}/fetch")
+    def fetch_osint_investigation(
+        investigation_id: str,
+        payload: OsintFetchRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            result = osint_service.fetch(
+                session,
+                investigation_id=investigation_id,
+                source_id=payload.source_id,
+                url=payload.url,
+                via_tor=payload.via_tor,
+                follow_same_host_redirects_only=payload.follow_same_host_redirects_only,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Investigação OSINT não encontrada.") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        session.commit()
+        return result
+
+    @app.post("/api/osint/investigations/{investigation_id}/crawl")
+    def crawl_osint_investigation(
+        investigation_id: str,
+        payload: OsintCrawlRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        results: list[dict[str, object]] = []
+        for source_id in payload.source_ids:
+            try:
+                results.append(
+                    osint_service.fetch(
+                        session,
+                        investigation_id=investigation_id,
+                        source_id=source_id,
+                        via_tor=payload.via_tor,
+                        follow_same_host_redirects_only=payload.follow_same_host_redirects_only,
+                    )
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=404, detail="Investigação OSINT não encontrada.") from exc
+        session.commit()
+        return {"investigation_id": investigation_id, "fetches": results, "count": len(results)}
+
+    @app.get("/api/osint/investigations/{investigation_id}/runs")
+    def list_osint_runs(investigation_id: str, session: Session = Depends(get_session)) -> list[dict[str, object]]:
+        return osint_service.list_runs(session, investigation_id)
+
+    @app.get("/api/osint/evidence")
+    def list_osint_evidence(
+        investigation_id: str | None = None,
+        validation_status: str | None = None,
+        session: Session = Depends(get_session),
+    ) -> list[dict[str, object]]:
+        return osint_service.list_evidence(session, investigation_id=investigation_id, validation_status=validation_status)
+
+    @app.post("/api/osint/evidence/{evidence_id}/approve")
+    def approve_osint_evidence(evidence_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        try:
+            payload = osint_service.approve_evidence(session, evidence_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Evidência OSINT não encontrada.") from exc
+        session.commit()
+        return payload
+
+    @app.get("/api/osint/claims")
+    def list_osint_claims(
+        investigation_id: str | None = None,
+        status: str | None = None,
+        session: Session = Depends(get_session),
+    ) -> list[dict[str, object]]:
+        return osint_service.list_claims(session, investigation_id=investigation_id, status=status)
+
+    @app.post("/api/osint/claims/{claim_id}/approve")
+    def approve_osint_claim(
+        claim_id: str,
+        payload: OsintClaimApproveRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            result = osint_service.approve_claim(session, claim_id, create_memory=payload.create_memory)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Claim OSINT não encontrada.") from exc
+        projection = None
+        rag_index = None
+        memory_record_payload = result.get("memory_record")
+        if isinstance(memory_record_payload, dict):
+            memory_record = session.get(MemoryRecord, memory_record_payload.get("id"))
+            claim = session.get(OsintClaim, claim_id)
+            if memory_record is not None and claim is not None:
+                projection = memory_graph.project_memory_record(
+                    session,
+                    memory_record,
+                    title=str(memory_record_payload.get("metadata", {}).get("title", memory_record.source)),
+                    metadata=memory_record_payload.get("metadata", {}),
+                )
+                rag_index = rag_memory.upsert_memory(
+                    memory_record,
+                    title=str(memory_record_payload.get("metadata", {}).get("title", memory_record.source)),
+                    preset="osint",
+                    source_kind="osint_claim",
+                    source_ref=claim.id,
+                    approved=True,
+                )
+        session.commit()
+        return {**result, "projection": projection, "rag_index": rag_index}
+
+    @app.post("/api/osint/export/dataset-bundle")
+    def export_osint_dataset_bundle(
+        payload: OsintExportRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            result = osint_service.export_dataset_bundle(session, investigation_id=payload.investigation_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Investigação OSINT não encontrada.") from exc
+        session.commit()
+        return result
 
     @app.get("/api/projects")
     def list_projects(session: Session = Depends(get_session)) -> list[dict[str, object]]:
@@ -1027,7 +1438,11 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 provider_id=provider_id,
                 model_name=model_name,
             )
-            set_session_profile(chat_session, objective=payload.message[:180], preset="assistant")
+            set_session_profile(
+                chat_session,
+                objective=payload.message[:180],
+                preset="osint" if payload.osint_mode else "assistant",
+            )
             session.add(chat_session)
             session.commit()
             session.refresh(chat_session)
@@ -1051,6 +1466,9 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         include_workspace = payload.include_workspace if payload.include_workspace is not None else bool(rag_policy.get("include_workspace", True))
         include_sources = payload.include_sources if payload.include_sources is not None else bool(rag_policy.get("include_sources", True))
         selector_mode = normalize_selector_mode(payload.memory_selector_mode)
+        osint_mode = payload.osint_mode if payload.osint_mode is not None else profile.get("preset") == "osint"
+        evidence_enabled = payload.evidence_enabled if payload.evidence_enabled is not None else osint_mode
+        fresh_web_enabled = payload.fresh_web_enabled if payload.fresh_web_enabled is not None else False
         context_snapshot = (
             memory_graph.build_context_snapshot(
                 session,
@@ -1088,6 +1506,25 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             }
             for item in recalled
         ]
+        osint_bundle = (
+            osint_service.build_context_bundle(
+                session,
+                query=payload.message,
+                project_id=effective_project_id,
+                session_id=chat_session.id,
+                investigation_id=payload.investigation_id,
+                fresh_web_enabled=fresh_web_enabled,
+                evidence_enabled=evidence_enabled,
+                enabled_connector_ids=payload.enabled_connector_ids or None,
+                source_registry_ids=payload.source_registry_ids or None,
+                via_tor=bool(payload.via_tor),
+                limit=max(1, int(rag_policy.get("top_k_sources", 4) or 4)),
+            )
+            if (evidence_enabled or fresh_web_enabled)
+            else {"context": "", "citations": [], "evidence": [], "fresh_results": [], "status": "disabled"}
+        )
+        osint_context = str(osint_bundle.get("context", "")).strip()
+        osint_citations = list(osint_bundle.get("citations", []))
         workspace_bundle = (
             workspace_service.build_context_snippet(
                 session,
@@ -1118,12 +1555,13 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 ("Snapshot compacto", snapshot_context),
                 ("Planner ativo", planner_context if planner_enabled else ""),
                 ("Memórias relevantes", memory_context),
+                ("OSINT evidence", osint_context),
                 ("Workspace/fontes", workspace_context),
                 ("RAG legado", legacy_sources_context),
             ],
             max_chars=max_context_chars,
         )
-        contextual_citations = memory_citations + workspace_citations + legacy_sources
+        contextual_citations = memory_citations + osint_citations + workspace_citations + legacy_sources
 
         gateway = OrquestraGateway(list_gateway_providers(session), mock=payload.mock_response)
         user_message = ChatMessage(
@@ -1140,6 +1578,10 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "memory_selector_mode": selector_mode,
                     "include_workspace": include_workspace,
                     "include_sources": include_sources,
+                    "osint_mode": osint_mode,
+                    "evidence_enabled": evidence_enabled,
+                    "fresh_web_enabled": fresh_web_enabled,
+                    "osint_bundle": osint_bundle,
                     "workspace_context": workspace_bundle,
                     "legacy_sources": legacy_sources,
                 },
@@ -1201,6 +1643,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "workspace_context": workspace_bundle,
                     "legacy_sources": legacy_sources,
                     "memory_selector_mode": selector_mode,
+                    "osint_bundle": osint_bundle,
                 },
                 ensure_ascii=False,
             ),
@@ -1266,6 +1709,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "latency_seconds": response.latency_seconds,
                     "memory_candidates_created": len(candidates),
                     "memory_recall_count": len(recalled),
+                    "osint_evidence_count": len(osint_bundle.get("evidence", [])),
                     "workspace_context_count": len(workspace_bundle.get("items", [])),
                     "legacy_source_count": len(legacy_sources),
                 },
@@ -1413,7 +1857,17 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail="Candidato ja revisado.")
 
         metadata = json.loads(candidate.metadata_json or "{}")
-        review_metadata = metadata | payload.metadata | {"approved_at": utc_now().isoformat(), "title": candidate.title}
+        citations = json.loads(candidate.citations_json or "[]")
+        source_message_ids = json.loads(candidate.source_message_ids_json or "[]")
+        first_citation = citations[0] if citations and isinstance(citations[0], dict) else {}
+        review_metadata = metadata | payload.metadata | {
+            "approved_at": utc_now().isoformat(),
+            "title": candidate.title,
+            "citations": citations,
+            "source_message_ids": source_message_ids,
+            "source_url": first_citation.get("source") or first_citation.get("url") or metadata.get("source_url", ""),
+            "validation_status": "approved",
+        }
         record = MemoryRecord(
             project_id=candidate.project_id,
             session_id=candidate.session_id,
@@ -1443,7 +1897,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
 
         training_record = None
         if payload.create_training_candidate:
-            source_ids = json.loads(candidate.source_message_ids_json or "[]")
+            source_ids = source_message_ids
             source_messages = [session.get(ChatMessage, item) for item in source_ids]
             user_turn = next((item for item in source_messages if item is not None and item.role == "user"), None)
             assistant_turn = next((item for item in source_messages if item is not None and item.role == "assistant"), None)
@@ -1464,7 +1918,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 metadata={
                     "memory_candidate_id": candidate.id,
                     "memory_record_id": record.id,
-                    "citations": json.loads(candidate.citations_json or "[]"),
+                    "citations": citations,
                 },
             )
 
@@ -1528,6 +1982,9 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     @app.post("/api/rag/query")
     def rag_query(payload: RagQueryRequest, session: Session = Depends(get_session)) -> dict[str, object]:
         engine_service = LocalRagEngine(app_settings)
+        chat_session = session.get(ChatSession, payload.session_id) if payload.session_id else None
+        session_profile = get_session_profile(chat_session) if chat_session is not None else {}
+        include_osint_default = session_profile.get("preset") == "osint"
         result = engine_service.query(
             session,
             RagQueryOptions(
@@ -1550,6 +2007,13 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                 task_context_enabled=payload.task_context_enabled if payload.task_context_enabled is not None else True,
                 memory_selector_mode=payload.memory_selector_mode or "hybrid",
                 context_budget=payload.context_budget,
+                include_osint_evidence=payload.include_osint_evidence if payload.include_osint_evidence is not None else include_osint_default,
+                investigation_id=payload.investigation_id,
+                evidence_budget=payload.evidence_budget or 4,
+                fresh_web_enabled=payload.fresh_web_enabled if payload.fresh_web_enabled is not None else False,
+                source_registry_ids=payload.source_registry_ids or None,
+                enabled_connector_ids=payload.enabled_connector_ids or None,
+                via_tor=bool(payload.via_tor),
             ),
             project_id=payload.project_id,
         )

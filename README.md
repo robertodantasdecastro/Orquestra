@@ -6,6 +6,7 @@
 
 ## O que o Orquestra entrega hoje
 - `Assistant Workspace` com setup de sessao por objetivo, preset e politicas de memoria/RAG.
+- `OSINT Lab` com busca web nativa, conectores administráveis, source registry, evidência, claims e export controlado.
 - `Memory Studio` com memoria hibrida, `Memory Inbox`, recall lexical + vetorial e projecao em arquivos.
 - `Workspace Browser` com leitura `inventory-first` e extracao sob demanda.
 - `Execution Center` com providers, jobs, workflows locais, registry, consulta RAG operacional e painel `Remote Train Plane`.
@@ -39,8 +40,9 @@ As areas oficiais do produto sao:
 3. `Memory Studio`
 4. `Execution Center`
 5. `Assistant Workspace`
-6. `Workspace Browser`
-7. `Projects`
+6. `OSINT Lab`
+7. `Workspace Browser`
+8. `Projects`
 
 Dentro dessas areas, o Orquestra expõe os blocos abaixo.
 
@@ -50,6 +52,7 @@ Dentro dessas areas, o Orquestra expõe os blocos abaixo.
 - usa `summary + recent tail + recalled memory + workspace/fontes` em vez de transcript integral
 - mostra `Memory Inbox`, resumo, transcript, planner e contexto operacional na mesma tela
 - atualiza `next_steps` reais a partir do planner
+- quando o preset e `osint`, o painel lateral tambem mostra a investigacao ativa, contagem de evidencias e claims, e atalho direto para o `OSINT Lab`
 
 Presets suportados:
 - `research`
@@ -64,6 +67,16 @@ Presets suportados:
 - escopos operacionais: `session_memory`, `episodic_memory`, `semantic_memory`, `workspace_memory`, `persona_memory`, `source_fact`, `training_signal`
 - recall com `memory_selector_mode=hybrid` ou `memory_selector_mode=lexical`
 - projecao em arquivos sob `experiments/orquestra/memorygraph/memdir`
+- proveniencia preservada em `metadata_json`, inclusive `citations`, `source_url`, `claim_id`, `capture_id` e `evidence_ids` quando a memoria nasce de OSINT
+
+### OSINT Lab
+- `OsintInvestigation`, `OsintRun`, `OsintSource`, `OsintCapture`, `OsintEvidence`, `OsintClaim` e `OsintEntity`
+- busca web nativa com fallback entre conectores habilitados
+- conectores administráveis com ligar/desligar global e por investigacao
+- `Source Registry` editavel para seeds, fontes curadas e politicas
+- fetch com normalizacao `HTML/PDF/JSON/text`
+- evidence inbox e aprovacao de claims com promocao para `MemoryRecord`
+- export de dataset OSINT somente para claims aprovadas
 
 ### Workspace Browser
 - anexo de diretorios
@@ -80,6 +93,7 @@ Presets suportados:
 - estados finais claros: `succeeded`, `failed`, `cancelled`, `interrupted`
 - recuperacao visual apos restart quando um run interrompido e reclassificado
 - comparacao de registry e consulta RAG operacional
+- resumo do `OSINT Connector Hub` com conectores prontos, proxy Tor configurado, investigacao ativa e export de bundle OSINT
 
 ### Operations Dashboard e Process Center
 - saude da API, web, desktop, bundle e artefatos
@@ -97,6 +111,7 @@ Os recursos de maior impacto operacional do Orquestra hoje sao:
 - banco local SQLite como base canônica
 - projecao em arquivos Markdown/metadata no `memdir`
 - colecao `orquestra_memory_v1` para memoria aprovada associada ao RAG
+- colecao `orquestra_osint_evidence_v1` para evidencias OSINT recuperaveis no chat e no RAG
 - fallback heuristico quando vetor/embeddings nao estao disponiveis
 
 ### Compactacao de contexto
@@ -140,12 +155,14 @@ Ordem fixa de montagem de contexto:
 2. snapshot compacto
 3. planner
 4. memoria relevante
-5. workspace/fontes
-6. RAG legado
-7. mensagem atual
+5. OSINT evidence
+6. workspace/fontes
+7. RAG legado
+8. mensagem atual
 
 ## Estrutura do repositório
 - `orquestra_ai/`: API FastAPI, gateway, memoria, planner, workflows, jobs e runtime
+- `orquestra_ai/osint.py`: orquestrador de busca/fetch/evidencia/claims do `OSINT Lab`
 - `orquestra_trainplane/`: servico remoto dedicado para fine-tuning adapter-first, metrics, artifacts e comparacao
 - `orquestra_web/`: frontend React/Vite e shell desktop Tauri
 - `rag/`: engine RAG integrado ao backend
@@ -232,6 +249,7 @@ Ele executa:
 - `cargo check`
 - validacao do pacote macOS quando `.app` e `.dmg` existem
 - smoke da API cobrindo sessao, memoria, compactacao, planner, workflow, workspace e RAG
+- cobertura dedicada do `OSINT Lab`, incluindo conectores administráveis, aprovacao de claim com proveniencia e uso de evidencia no chat/RAG
 - cobertura dedicada do `orquestra_trainplane` e do proxy local `/api/remote/trainplane/*`
 - smoke real opcional por provider quando `--real-provider` ou `ORQUESTRA_VALIDATE_REAL_PROVIDERS` forem usados
 

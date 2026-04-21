@@ -6,6 +6,7 @@ Este documento descreve o desenho operacional do Orquestra como control plane lo
 - chat multi-provider
 - memoria persistente e memoria operacional
 - RAG contextual
+- investigacao OSINT nativa
 - leitura multimodal de diretorios
 - planner de sessao
 - workflows locais multi-step
@@ -59,6 +60,9 @@ Providers suportados:
 - `orquestra_ai/workflow_engine.py`
 - `orquestra_ai/operations.py`
 
+### OSINT
+- `orquestra_ai/osint.py`
+
 ### Workspace
 - `orquestra_ai/workspace.py`
 
@@ -67,7 +71,7 @@ Providers suportados:
 - `orquestra_web/src/api.ts`
 - `orquestra_web/src-tauri/`
 
-O frontend agora tambem incorpora o bloco `Remote Train Plane` dentro do `Execution Center`.
+O frontend agora tambem incorpora o bloco `Remote Train Plane` dentro do `Execution Center` e a area dedicada `OSINT Lab`.
 
 ## Superficies da interface
 As areas de produto usadas hoje pelo shell web/desktop sao:
@@ -77,8 +81,9 @@ As areas de produto usadas hoje pelo shell web/desktop sao:
 3. `Memory Studio`
 4. `Execution Center`
 5. `Assistant Workspace`
-6. `Workspace Browser`
-7. `Projects`
+6. `OSINT Lab`
+7. `Workspace Browser`
+8. `Projects`
 
 ## Modelo operacional da sessao
 Cada sessao combina:
@@ -112,6 +117,7 @@ Os contratos publicos de `POST /api/chat/stream` e `POST /api/rag/query` ja tem 
 - `memory_selector_mode`: aceita `hybrid` e `lexical`
 - `include_workspace`: controla a secao `Workspace/fontes`
 - `include_sources`: controla a secao `RAG legado`
+- `include_osint_evidence`: controla a secao `OSINT evidence`
 - `compaction_enabled`: liga/desliga snapshot compacto
 - `task_context_enabled`: controla uso do contexto de tarefas
 - `context_budget`: limita o contexto agregado
@@ -121,9 +127,10 @@ Os contratos publicos de `POST /api/chat/stream` e `POST /api/rag/query` ja tem 
 2. snapshot compacto
 3. planner
 4. memoria relevante
-5. workspace/fontes
-6. RAG legado
-7. mensagem atual
+5. OSINT evidence
+6. workspace/fontes
+7. RAG legado
+8. mensagem atual
 
 ## Memoria e RAG
 ### Camadas
@@ -157,6 +164,27 @@ Ao aprovar um `MemoryReviewCandidate`, o sistema cria:
 1. `MemoryRecord`
 2. projecao em arquivo
 3. indexacao em `orquestra_memory_v1`
+
+Quando a origem vem do `OSINT Lab`, a memoria aprovada preserva `citations`, `source_url`, `claim_id`, `capture_id` e `evidence_ids`.
+
+## OSINT Lab
+### Entidades
+- `OsintInvestigation`
+- `OsintRun`
+- `OsintSource`
+- `OsintCapture`
+- `OsintEvidence`
+- `OsintClaim`
+
+### Fluxo
+1. criar investigacao
+2. selecionar conectores ativos
+3. planejar queries
+4. buscar fontes
+5. fazer fetch
+6. aprovar evidencias
+7. aprovar claims
+8. promover memoria ou exportar dataset
 
 ### Politica de resiliencia
 - falha de embedding nao quebra chat

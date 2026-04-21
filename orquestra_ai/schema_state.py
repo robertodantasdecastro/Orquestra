@@ -11,7 +11,7 @@ from sqlmodel import Session
 
 from .models import RuntimeMetadata
 
-ORQUESTRA_DB_SCHEMA_VERSION = 7
+ORQUESTRA_DB_SCHEMA_VERSION = 8
 ORQUESTRA_DB_LEGACY_VERSION = 1
 
 

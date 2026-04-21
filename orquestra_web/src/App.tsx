@@ -8,6 +8,14 @@ import {
   MemoryReviewCandidate,
   MemoryTopic,
   ModelArtifact,
+  OsintClaim,
+  OsintConfig,
+  OsintConnectorState,
+  OsintEvidence,
+  OsintInvestigation,
+  OsintRun,
+  OsintSource,
+  OsintSourceRegistryEntry,
   OpsDashboard,
   OpsRun,
   PlannerSnapshot,
@@ -34,6 +42,8 @@ import {
   WorkspaceQueryResult,
   WorkspaceScan,
   approveMemoryCandidate,
+  approveOsintClaim,
+  approveOsintEvidence,
   attachDirectory,
   cancelWorkflowRun,
   compactSession,
@@ -47,14 +57,22 @@ import {
   createRemoteTrainPlaneComparison,
   createRemoteTrainPlaneEvaluation,
   createRemoteTrainPlaneRun,
+  createOsintInvestigation,
+  createOsintSourceRegistryEntry,
   createSession,
   createSessionTask,
   createWorkflowRun,
+  disableOsintConnector,
+  enableOsintConnector,
+  exportOsintDatasetBundle,
   extractWorkspaceAsset,
+  fetchOsintInvestigation,
   getRemoteTrainPlaneConfig,
   getRemoteTrainPlaneRun,
   getHealth,
   getOpsDashboard,
+  getOsintConfig,
+  getOsintInvestigation,
   getOpsRun,
   getPlanner,
   getRemoteJobLogs,
@@ -75,6 +93,12 @@ import {
   listMemoryTopics,
   listMessages,
   listModels,
+  listOsintClaims,
+  listOsintConnectors,
+  listOsintEvidence,
+  listOsintInvestigations,
+  listOsintRuns,
+  listOsintSourceRegistry,
   listSessions,
   listTrainingCandidates,
   listWorkflowRuns,
@@ -83,6 +107,10 @@ import {
   memorizeWorkspaceAsset,
   openWorkspaceAsset,
   patchSessionTask,
+  patchOsintConnector,
+  patchOsintInvestigation,
+  patchOsintSourceRegistryEntry,
+  planOsintInvestigation,
   previewWorkspaceAsset,
   promoteMemory,
   queryRag,
@@ -92,17 +120,19 @@ import {
   rejectMemoryCandidate,
   rebuildPlanner,
   resumeSession,
+  searchOsintInvestigation,
   promoteRemoteTrainPlaneArtifact,
   syncRemoteTrainPlaneBaseModel,
   syncRemoteTrainPlaneDatasetBundle,
   streamChat,
   testRemoteTrainPlaneConnection,
   updateRemoteTrainPlaneConfig,
+  updateOsintConfig,
   updateSessionProfile
 } from "./api";
 import orquestraLogo from "./assets/orquestra-logo.svg";
 
-type ViewId = "dashboard" | "process" | "memory" | "execution" | "assistant" | "workspace" | "projects";
+type ViewId = "dashboard" | "process" | "memory" | "execution" | "assistant" | "osint" | "workspace" | "projects";
 
 const views: Array<{ id: ViewId; title: string; helper: string }> = [
   { id: "dashboard", title: "Operations Dashboard", helper: "Serviços, artefatos, validação e estado vivo da stack." },
@@ -110,6 +140,7 @@ const views: Array<{ id: ViewId; title: string; helper: string }> = [
   { id: "memory", title: "Memory Studio", helper: "Memória durável, recall, training candidates e working memory." },
   { id: "execution", title: "Execution Center", helper: "Providers, conectores, jobs, registry e ações operacionais." },
   { id: "assistant", title: "Assistant Workspace", helper: "Conversa multi-provider com resumo e transcript separados." },
+  { id: "osint", title: "OSINT Lab", helper: "Busca web nativa, conectores administráveis, evidência e claims com memória rastreável." },
   { id: "workspace", title: "Workspace Browser", helper: "Leitura multimodal inventory-first e extração sob demanda." },
   { id: "projects", title: "Projects", helper: "Projetos, defaults e perfis operacionais do control plane." }
 ];
@@ -294,6 +325,36 @@ export default function App() {
   const [ragPrompt, setRagPrompt] = useState("Quais fontes devo priorizar para threat intelligence ativa?");
   const [ragResult, setRagResult] = useState<RagResult | null>(null);
   const [ragLoading, setRagLoading] = useState(false);
+  const [osintConfig, setOsintConfig] = useState<OsintConfig | null>(null);
+  const [osintConnectors, setOsintConnectors] = useState<OsintConnectorState[]>([]);
+  const [osintRegistry, setOsintRegistry] = useState<OsintSourceRegistryEntry[]>([]);
+  const [osintInvestigations, setOsintInvestigations] = useState<OsintInvestigation[]>([]);
+  const [selectedInvestigationId, setSelectedInvestigationId] = useState("");
+  const [selectedInvestigation, setSelectedInvestigation] = useState<OsintInvestigation | null>(null);
+  const [osintRuns, setOsintRuns] = useState<OsintRun[]>([]);
+  const [osintSources, setOsintSources] = useState<OsintSource[]>([]);
+  const [osintEvidence, setOsintEvidence] = useState<OsintEvidence[]>([]);
+  const [osintClaims, setOsintClaims] = useState<OsintClaim[]>([]);
+  const [osintPlanQueries, setOsintPlanQueries] = useState<string[]>([]);
+  const [osintSearchQuery, setOsintSearchQuery] = useState("orquestra ai memory graph osint");
+  const [osintFetchUrl, setOsintFetchUrl] = useState("");
+  const [osintInvestigationForm, setOsintInvestigationForm] = useState({
+    title: "Investigação OSINT",
+    objective: "Coletar fontes web rastreáveis e promover apenas claims aprovadas para memória.",
+    target_entity: "Orquestra AI",
+    language: "pt-BR",
+    jurisdiction: "global",
+    mode: "balanced"
+  });
+  const [osintRegistryForm, setOsintRegistryForm] = useState({
+    source_key: "manual-seed",
+    title: "Manual Seed",
+    connector_id: "onion_manual",
+    category: "manual_seed",
+    access_type: "web",
+    base_url: "https://example.org",
+    description: "Fonte manual adicionada pelo operador."
+  });
 
   const [projectForm, setProjectForm] = useState({
     slug: "orquestra-core",
@@ -441,6 +502,48 @@ export default function App() {
     const nextScanId = scanPayload.find((item) => item.id === selectedScanId)?.id ?? scanPayload[0]?.id ?? "";
     setSelectedSessionId(nextSessionId);
     setSelectedScanId(nextScanId);
+  }
+
+  async function refreshOsint(projectId?: string, preferredInvestigationId?: string) {
+    const [configPayload, connectorsPayload, registryPayload, investigationsPayload] = await Promise.all([
+      getOsintConfig(),
+      listOsintConnectors(projectId || undefined),
+      listOsintSourceRegistry(),
+      listOsintInvestigations(projectId || undefined)
+    ]);
+    setOsintConfig(configPayload);
+    setOsintConnectors(connectorsPayload);
+    setOsintRegistry(registryPayload);
+    setOsintInvestigations(investigationsPayload);
+    const nextInvestigationId =
+      preferredInvestigationId ||
+      investigationsPayload.find((item) => item.id === selectedInvestigationId)?.id ||
+      investigationsPayload.find((item) => (selectedSessionId ? item.session_id === selectedSessionId : false))?.id ||
+      investigationsPayload[0]?.id ||
+      "";
+    setSelectedInvestigationId(nextInvestigationId);
+  }
+
+  async function refreshOsintInvestigation(investigationId: string) {
+    if (!investigationId) {
+      setSelectedInvestigation(null);
+      setOsintRuns([]);
+      setOsintSources([]);
+      setOsintEvidence([]);
+      setOsintClaims([]);
+      setOsintPlanQueries([]);
+      return;
+    }
+    const [investigationPayload, runsPayload, evidencePayload, claimsPayload] = await Promise.all([
+      getOsintInvestigation(investigationId),
+      listOsintRuns(investigationId),
+      listOsintEvidence(investigationId),
+      listOsintClaims(investigationId)
+    ]);
+    setSelectedInvestigation(investigationPayload);
+    setOsintRuns(runsPayload);
+    setOsintEvidence(evidencePayload);
+    setOsintClaims(claimsPayload);
   }
 
   async function refreshProviderModels(providerId: string, preferredModel?: string) {
@@ -603,6 +706,10 @@ export default function App() {
   }, [selectedProjectId]);
 
   useEffect(() => {
+    refreshOsint(selectedProjectId || undefined).catch((error) => setStatusLine(`Falha ao carregar OSINT Lab: ${String(error)}`));
+  }, [selectedProjectId]);
+
+  useEffect(() => {
     if (!selectedProviderId) return;
     const preferredModel = projects.find((item) => item.id === selectedProjectId)?.default_model;
     refreshProviderModels(selectedProviderId, preferredModel).catch((error) => setStatusLine(`Falha ao listar modelos: ${String(error)}`));
@@ -612,6 +719,26 @@ export default function App() {
     if (!selectedSessionId) return;
     refreshSession(selectedSessionId).catch((error) => setStatusLine(`Falha ao carregar sessão: ${String(error)}`));
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    listOsintInvestigations(undefined, selectedSessionId)
+      .then((items) => {
+        const sessionInvestigation = items[0];
+        if (sessionInvestigation) {
+          setSelectedInvestigationId((current) => current || sessionInvestigation.id);
+        }
+      })
+      .catch(() => undefined);
+  }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!selectedInvestigationId) {
+      refreshOsintInvestigation("").catch(() => undefined);
+      return;
+    }
+    refreshOsintInvestigation(selectedInvestigationId).catch((error) => setStatusLine(`Falha ao carregar investigação OSINT: ${String(error)}`));
+  }, [selectedInvestigationId]);
 
   useEffect(() => {
     if (!selectedScanId) return;
@@ -805,7 +932,14 @@ export default function App() {
           planner_enabled: true,
           task_context_enabled: true,
           memory_selector_mode: "hybrid",
-          context_budget: Number(ragPolicy.max_context_chars ?? 9000)
+          context_budget: Number(ragPolicy.max_context_chars ?? 9000),
+          investigation_id: selectedInvestigationId || undefined,
+          osint_mode: sessionProfile?.preset === "osint",
+          fresh_web_enabled: false,
+          evidence_enabled: sessionProfile?.preset === "osint",
+          source_registry_ids: selectedInvestigation?.source_registry_ids ?? [],
+          enabled_connector_ids: selectedInvestigation?.enabled_connector_ids ?? [],
+          via_tor: false
         },
         {
           onSession: ({ session_id }) => {
@@ -840,7 +974,7 @@ export default function App() {
                   }
             );
           },
-          onDone: ({ provider_id, model_name, usage, latency_seconds, memory_candidates_created, memory_recall_count }) => {
+          onDone: ({ provider_id, model_name, usage, latency_seconds, memory_candidates_created, memory_recall_count, osint_evidence_count }) => {
             setMessages((current) =>
               current.map((message, index) =>
                 index === current.length - 1 && message.role === "assistant"
@@ -850,7 +984,7 @@ export default function App() {
             );
             setLastMemoryTelemetry({ recallCount: memory_recall_count ?? 0, candidatesCreated: memory_candidates_created ?? 0 });
             setStatusLine(
-              `Resposta concluída via ${provider_id}/${model_name} em ${latency_seconds.toFixed(2)}s; memória recall ${memory_recall_count ?? 0}, inbox +${memory_candidates_created ?? 0}.`
+              `Resposta concluída via ${provider_id}/${model_name} em ${latency_seconds.toFixed(2)}s; memória recall ${memory_recall_count ?? 0}, evidência OSINT ${osint_evidence_count ?? 0}, inbox +${memory_candidates_created ?? 0}.`
             );
           }
         }
@@ -1198,7 +1332,14 @@ export default function App() {
         planner_enabled: true,
         task_context_enabled: true,
         memory_selector_mode: "hybrid",
-        context_budget: Number(sessionProfile?.rag_policy.max_context_chars ?? 9000)
+        context_budget: Number(sessionProfile?.rag_policy.max_context_chars ?? 9000),
+        include_osint_evidence: Boolean(selectedInvestigationId || sessionProfile?.preset === "osint"),
+        investigation_id: selectedInvestigationId || undefined,
+        evidence_budget: 4,
+        fresh_web_enabled: false,
+        source_registry_ids: selectedInvestigation?.source_registry_ids ?? [],
+        enabled_connector_ids: selectedInvestigation?.enabled_connector_ids ?? [],
+        via_tor: false
       });
       setRagResult(result);
       setStatusLine("Consulta do RAG concluída.");
@@ -1208,6 +1349,163 @@ export default function App() {
       setStatusLine(`Falha no RAG Studio: ${String(error)}`);
     } finally {
       setRagLoading(false);
+    }
+  }
+
+  async function handleSaveOsintConfig() {
+    if (!osintConfig) return;
+    try {
+      const payload = await updateOsintConfig(osintConfig);
+      setOsintConfig(payload);
+      setStatusLine("Configuração do OSINT Lab salva.");
+    } catch (error) {
+      setStatusLine(`Falha ao salvar configuração OSINT: ${String(error)}`);
+    }
+  }
+
+  async function handleCreateOsintInvestigation() {
+    try {
+      const payload = await createOsintInvestigation({
+        project_id: selectedProjectId || undefined,
+        session_id: selectedSessionId || undefined,
+        ...osintInvestigationForm
+      });
+      setSelectedInvestigationId(payload.id);
+      setOsintSearchQuery(payload.target_entity || payload.objective || payload.title);
+      setStatusLine(`Investigação OSINT criada: ${payload.title}.`);
+      await refreshOsint(selectedProjectId || undefined, payload.id);
+      await refreshOsintInvestigation(payload.id);
+    } catch (error) {
+      setStatusLine(`Falha ao criar investigação OSINT: ${String(error)}`);
+    }
+  }
+
+  async function handleInvestigationConnectorToggle(connectorId: string) {
+    if (!selectedInvestigation) return;
+    const enabled = new Set(selectedInvestigation.enabled_connector_ids ?? []);
+    if (enabled.has(connectorId)) {
+      enabled.delete(connectorId);
+    } else {
+      enabled.add(connectorId);
+    }
+    try {
+      const payload = await patchOsintInvestigation(selectedInvestigation.id, {
+        enabled_connector_ids: [...enabled]
+      });
+      setSelectedInvestigation(payload);
+      setStatusLine(`Conectores da investigação atualizados para ${payload.title}.`);
+      await refreshOsint(selectedProjectId || undefined, payload.id);
+      await refreshOsintInvestigation(payload.id);
+    } catch (error) {
+      setStatusLine(`Falha ao atualizar conectores da investigação: ${String(error)}`);
+    }
+  }
+
+  async function handleToggleOsintConnector(connector: OsintConnectorState) {
+    try {
+      if (connector.enabled_global) {
+        await disableOsintConnector(connector.connector_id);
+        setStatusLine(`Conector ${connector.label} desligado globalmente.`);
+      } else {
+        await enableOsintConnector(connector.connector_id);
+        setStatusLine(`Conector ${connector.label} ligado globalmente.`);
+      }
+      await refreshOsint(selectedProjectId || undefined, selectedInvestigationId || undefined);
+    } catch (error) {
+      setStatusLine(`Falha ao alterar conector OSINT: ${String(error)}`);
+    }
+  }
+
+  async function handlePlanOsint() {
+    if (!selectedInvestigationId) return;
+    try {
+      const payload = await planOsintInvestigation(selectedInvestigationId, osintSearchQuery);
+      setOsintPlanQueries(payload.queries);
+      setStatusLine(`Plano de consulta OSINT atualizado com ${payload.queries.length} queries.`);
+    } catch (error) {
+      setStatusLine(`Falha ao planejar investigação OSINT: ${String(error)}`);
+    }
+  }
+
+  async function handleSearchOsint() {
+    if (!selectedInvestigationId || !osintSearchQuery.trim()) return;
+    try {
+      const payload = await searchOsintInvestigation(selectedInvestigationId, {
+        query: osintSearchQuery.trim(),
+        connector_ids: selectedInvestigation?.enabled_connector_ids ?? [],
+        source_registry_ids: selectedInvestigation?.source_registry_ids ?? [],
+        via_tor: false,
+        limit: Number(osintConfig?.default_max_results ?? 5)
+      });
+      setOsintSources(payload.results);
+      setOsintRuns((current) => [payload.run, ...current.filter((item) => item.id !== payload.run.id)]);
+      setStatusLine(`Busca OSINT concluída com ${payload.results.length} fontes.`);
+      await refreshOsintInvestigation(selectedInvestigationId);
+    } catch (error) {
+      setStatusLine(`Falha na busca OSINT: ${String(error)}`);
+    }
+  }
+
+  async function handleFetchOsint(sourceId?: string, url?: string) {
+    if (!selectedInvestigationId) return;
+    try {
+      const payload = await fetchOsintInvestigation(selectedInvestigationId, {
+        source_id: sourceId,
+        url: url || osintFetchUrl || undefined,
+        via_tor: false
+      });
+      if (payload.capture) {
+        setOsintEvidence((current) => [...payload.evidence, ...current.filter((item) => !payload.evidence.some((next) => next.id === item.id))]);
+        setOsintClaims((current) => [...payload.claims, ...current.filter((item) => !payload.claims.some((next) => next.id === item.id))]);
+        setStatusLine(`Fetch OSINT concluído para ${payload.capture.title || payload.capture.url}.`);
+      } else {
+        setStatusLine(`Fetch OSINT retornou: ${payload.error || payload.status || "sem captura"}.`);
+      }
+      await refreshOsintInvestigation(selectedInvestigationId);
+    } catch (error) {
+      setStatusLine(`Falha no fetch OSINT: ${String(error)}`);
+    }
+  }
+
+  async function handleApproveEvidence(evidenceId: string) {
+    try {
+      await approveOsintEvidence(evidenceId);
+      setStatusLine("Evidência OSINT aprovada.");
+      await refreshOsintInvestigation(selectedInvestigationId);
+    } catch (error) {
+      setStatusLine(`Falha ao aprovar evidência OSINT: ${String(error)}`);
+    }
+  }
+
+  async function handleApproveClaim(claimId: string) {
+    try {
+      await approveOsintClaim(claimId, { create_memory: true });
+      setStatusLine("Claim aprovada e promovida para memória rastreável.");
+      await refreshOsintInvestigation(selectedInvestigationId);
+      await refreshProjectScoped(selectedProjectId);
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao aprovar claim OSINT: ${String(error)}`);
+    }
+  }
+
+  async function handleExportOsintDataset() {
+    if (!selectedInvestigationId) return;
+    try {
+      const payload = await exportOsintDatasetBundle({ investigation_id: selectedInvestigationId });
+      setStatusLine(`Dataset OSINT exportado com ${payload.record_count} registros em ${payload.export_path}.`);
+    } catch (error) {
+      setStatusLine(`Falha ao exportar dataset OSINT: ${String(error)}`);
+    }
+  }
+
+  async function handleCreateOsintRegistryEntry() {
+    try {
+      const payload = await createOsintSourceRegistryEntry(osintRegistryForm);
+      setStatusLine(`Fonte ${payload.title} adicionada ao Source Registry.`);
+      await refreshOsint(selectedProjectId || undefined, selectedInvestigationId || undefined);
+    } catch (error) {
+      setStatusLine(`Falha ao criar fonte no registry OSINT: ${String(error)}`);
     }
   }
 
@@ -2074,6 +2372,32 @@ export default function App() {
                       ))}
                     </div>
 
+                    <article className="result-panel">
+                      <header>
+                        <strong>OSINT Connector Hub</strong>
+                        <span>{osintConnectors.filter((item) => item.ready).length} prontos</span>
+                      </header>
+                      <div className="context-list">
+                        <span><strong>Investigação ativa:</strong> {selectedInvestigation?.title || "nenhuma"}</span>
+                        <span><strong>Tor proxy:</strong> {osintConfig?.tor_proxy_url || "não configurado"}</span>
+                        <span><strong>Evidências:</strong> {osintEvidence.length}</span>
+                        <span><strong>Claims:</strong> {osintClaims.length}</span>
+                      </div>
+                      <div className="token-list">
+                        {osintConnectors.slice(0, 6).map((connector) => (
+                          <span key={connector.connector_id}>{connector.label}:{connector.enabled_global ? "on" : "off"}</span>
+                        ))}
+                      </div>
+                      <div className="composer-actions">
+                        <button type="button" className="ghost-button" onClick={() => setView("osint")}>
+                          Abrir OSINT Lab
+                        </button>
+                        <button type="button" className="ghost-button" onClick={handleExportOsintDataset} disabled={!selectedInvestigationId}>
+                          Exportar bundle OSINT
+                        </button>
+                      </div>
+                    </article>
+
                     <div className="jobs-grid">
                       <div>
                         <h4>Training jobs</h4>
@@ -2829,7 +3153,29 @@ export default function App() {
                           <span key={collection}>{collection}</span>
                         ))}
                         <span>{sessionProfile.rag_policy.memory_collection || "orquestra_memory_v1"}</span>
+                        {selectedInvestigationId ? <span>investigation:{selectedInvestigationId.slice(0, 8)}</span> : null}
                       </div>
+
+                      {(sessionProfile.preset === "osint" || selectedInvestigation) && (
+                        <article className="memory-card candidate-card">
+                          <strong>{selectedInvestigation?.title || "Investigação OSINT não vinculada"}</strong>
+                          <span>{selectedInvestigation?.status || "sem investigação"} · {selectedInvestigation?.mode || "balanced"}</span>
+                          <p>{selectedInvestigation?.objective || "Use o OSINT Lab para ligar a sessão a uma investigação, fontes e claims aprovadas."}</p>
+                          <div className="context-list">
+                            <span><strong>Evidências:</strong> {osintEvidence.length}</span>
+                            <span><strong>Claims:</strong> {osintClaims.length}</span>
+                            <span><strong>Fontes recentes:</strong> {osintSources.length}</span>
+                          </div>
+                          <div className="composer-actions">
+                            <button type="button" className="ghost-button" onClick={() => setView("osint")}>
+                              Abrir OSINT Lab
+                            </button>
+                            <button type="button" className="ghost-button" onClick={handleSearchOsint} disabled={!selectedInvestigationId}>
+                              Buscar web
+                            </button>
+                          </div>
+                        </article>
+                      )}
 
                       <div className="composer-actions">
                         <button type="button" className="ghost-button" onClick={handleCompactSession} disabled={!selectedSessionId}>
@@ -2999,6 +3345,309 @@ export default function App() {
                       <p>Crie uma sessão para configurar objetivo, preset, política de memória e ligação com RAG.</p>
                     </div>
                   )}
+                </section>
+              </div>
+            )}
+
+            {view === "osint" && (
+              <div className="workspace-layout">
+                <section className="panel attach-panel">
+                  <div className="panel-head">
+                    <div>
+                      <p className="eyebrow">OSINT Control Plane</p>
+                      <h3>Investigação, políticas e configuração nativa</h3>
+                    </div>
+                    <div className="composer-actions">
+                      <button type="button" className="ghost-button" onClick={handleSaveOsintConfig} disabled={!osintConfig}>
+                        Salvar config
+                      </button>
+                      <button type="button" className="primary-button" onClick={handleCreateOsintInvestigation}>
+                        Nova investigação
+                      </button>
+                    </div>
+                  </div>
+
+                  {osintConfig ? (
+                    <div className="split-form">
+                      <label>
+                        Search timeout
+                        <input
+                          type="number"
+                          value={osintConfig.search_timeout_seconds}
+                          onChange={(event) =>
+                            setOsintConfig((current) => (current ? { ...current, search_timeout_seconds: Number(event.target.value || 0) } : current))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Fetch timeout
+                        <input
+                          type="number"
+                          value={osintConfig.fetch_timeout_seconds}
+                          onChange={(event) =>
+                            setOsintConfig((current) => (current ? { ...current, fetch_timeout_seconds: Number(event.target.value || 0) } : current))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Max resultados
+                        <input
+                          type="number"
+                          value={osintConfig.default_max_results}
+                          onChange={(event) =>
+                            setOsintConfig((current) => (current ? { ...current, default_max_results: Number(event.target.value || 0) } : current))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Fetch limit
+                        <input
+                          type="number"
+                          value={osintConfig.default_fetch_limit}
+                          onChange={(event) =>
+                            setOsintConfig((current) => (current ? { ...current, default_fetch_limit: Number(event.target.value || 0) } : current))
+                          }
+                        />
+                      </label>
+                      <label className="full-label">
+                        Tor proxy
+                        <input
+                          value={osintConfig.tor_proxy_url}
+                          onChange={(event) =>
+                            setOsintConfig((current) => (current ? { ...current, tor_proxy_url: event.target.value } : current))
+                          }
+                        />
+                      </label>
+                    </div>
+                  ) : null}
+
+                  <div className="form-stack">
+                    <input
+                      value={osintInvestigationForm.title}
+                      onChange={(event) => setOsintInvestigationForm((current) => ({ ...current, title: event.target.value }))}
+                      placeholder="Título da investigação"
+                    />
+                    <textarea
+                      value={osintInvestigationForm.objective}
+                      onChange={(event) => setOsintInvestigationForm((current) => ({ ...current, objective: event.target.value }))}
+                      placeholder="Objetivo investigativo"
+                    />
+                    <div className="split-form">
+                      <label>
+                        Entidade-alvo
+                        <input
+                          value={osintInvestigationForm.target_entity}
+                          onChange={(event) => setOsintInvestigationForm((current) => ({ ...current, target_entity: event.target.value }))}
+                        />
+                      </label>
+                      <label>
+                        Idioma
+                        <input value={osintInvestigationForm.language} onChange={(event) => setOsintInvestigationForm((current) => ({ ...current, language: event.target.value }))} />
+                      </label>
+                      <label>
+                        Jurisdição
+                        <input value={osintInvestigationForm.jurisdiction} onChange={(event) => setOsintInvestigationForm((current) => ({ ...current, jurisdiction: event.target.value }))} />
+                      </label>
+                      <label>
+                        Modo
+                        <input value={osintInvestigationForm.mode} onChange={(event) => setOsintInvestigationForm((current) => ({ ...current, mode: event.target.value }))} />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="scan-grid">
+                    {osintInvestigations.map((investigation) => (
+                      <button
+                        key={investigation.id}
+                        type="button"
+                        className={selectedInvestigationId === investigation.id ? "scan-card active" : "scan-card"}
+                        onClick={() => setSelectedInvestigationId(investigation.id)}
+                      >
+                        <strong>{investigation.title}</strong>
+                        <span>{investigation.status} · {investigation.mode}</span>
+                        <small>{compactText(investigation.objective, 96)}</small>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="panel workspace-panel">
+                  <div className="panel-head">
+                    <div>
+                      <p className="eyebrow">Search Console</p>
+                      <h3>Busca web, fetch e evidência rastreável</h3>
+                    </div>
+                    <div className="composer-actions">
+                      <button type="button" className="ghost-button" onClick={handlePlanOsint} disabled={!selectedInvestigationId}>
+                        Planejar queries
+                      </button>
+                      <button type="button" className="primary-button" onClick={handleSearchOsint} disabled={!selectedInvestigationId}>
+                        Buscar web
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="form-stack">
+                    <textarea value={osintSearchQuery} onChange={(event) => setOsintSearchQuery(event.target.value)} placeholder="Consulta OSINT, aliases, site: e filtros." />
+                    <div className="composer-actions">
+                      <input
+                        value={osintFetchUrl}
+                        onChange={(event) => setOsintFetchUrl(event.target.value)}
+                        placeholder="URL opcional para fetch direto"
+                      />
+                      <button type="button" className="ghost-button" onClick={() => handleFetchOsint(undefined, osintFetchUrl)} disabled={!selectedInvestigationId}>
+                        Fetch direto
+                      </button>
+                      <button type="button" className="ghost-button" onClick={handleExportOsintDataset} disabled={!selectedInvestigationId}>
+                        Exportar dataset
+                      </button>
+                    </div>
+                    {(osintPlanQueries ?? []).length > 0 ? (
+                      <div className="token-list">
+                        {osintPlanQueries.map((item) => (
+                          <span key={item}>{item}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="provider-grid">
+                    {osintConnectors.map((connector) => {
+                      const investigationEnabled = selectedInvestigation?.enabled_connector_ids?.includes(connector.connector_id) ?? false;
+                      return (
+                        <article key={connector.connector_id} className="provider-card">
+                          <strong>{connector.label}</strong>
+                          <span>{connector.status}</span>
+                          <p>{connector.description}</p>
+                          <div className="token-list">
+                            <span>{connector.category}</span>
+                            <span>{connector.credential_status}</span>
+                            <span>{connector.health_status}</span>
+                          </div>
+                          <div className="composer-actions">
+                            <button type="button" className="ghost-button" onClick={() => handleToggleOsintConnector(connector)}>
+                              {connector.enabled_global ? "Desligar global" : "Ligar global"}
+                            </button>
+                            <button type="button" className="ghost-button" onClick={() => handleInvestigationConnectorToggle(connector.connector_id)} disabled={!selectedInvestigation}>
+                              {investigationEnabled ? "Remover da investigação" : "Usar na investigação"}
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+
+                  <div className="memory-grid dense">
+                    <div className="memory-column">
+                      <h4>Fontes recentes</h4>
+                      {osintSources.length === 0 ? (
+                        <div className="empty-state compact">
+                          <h4>Sem resultados recentes.</h4>
+                          <p>Planeje uma query e rode a busca para preencher as fontes.</p>
+                        </div>
+                      ) : (
+                        osintSources.map((source) => (
+                          <article key={source.id} className="memory-card">
+                            <strong>{source.title}</strong>
+                            <span>{source.connector_id} · rank {source.rank + 1}</span>
+                            <p>{compactText(source.snippet || source.url, 220)}</p>
+                            <div className="composer-actions">
+                              <button type="button" className="ghost-button" onClick={() => handleFetchOsint(source.id)}>
+                                Fetch
+                              </button>
+                              <button type="button" className="ghost-button" onClick={() => window.open(source.url, "_blank")}>
+                                Abrir
+                              </button>
+                            </div>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                    <div className="memory-column">
+                      <h4>Evidências</h4>
+                      {osintEvidence.length === 0 ? (
+                        <div className="empty-state compact">
+                          <h4>Nenhuma evidência ainda.</h4>
+                          <p>As capturas normalizadas e os trechos relevantes aparecem aqui.</p>
+                        </div>
+                      ) : (
+                        osintEvidence.map((evidence) => (
+                          <article key={evidence.id} className="memory-card candidate-card">
+                            <strong>{evidence.title}</strong>
+                            <span>{evidence.validation_status} · quality {evidence.source_quality.toFixed(2)}</span>
+                            <p>{compactText(evidence.content, 220)}</p>
+                            <div className="composer-actions">
+                              <button type="button" className="primary-button" onClick={() => handleApproveEvidence(evidence.id)}>
+                                Aprovar evidência
+                              </button>
+                            </div>
+                          </article>
+                        ))
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="memory-grid dense">
+                    <div className="memory-column">
+                      <h4>Claims</h4>
+                      {osintClaims.map((claim) => (
+                        <article key={claim.id} className="memory-card candidate-card">
+                          <strong>{claim.title}</strong>
+                          <span>{claim.status} · confiança {claim.confidence.toFixed(2)}</span>
+                          <p>{compactText(claim.content, 220)}</p>
+                          <div className="composer-actions">
+                            <button type="button" className="primary-button" onClick={() => handleApproveClaim(claim.id)}>
+                              Aprovar claim
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    <div className="memory-column">
+                      <h4>Source Registry</h4>
+                      <div className="form-stack">
+                        <input value={osintRegistryForm.source_key} onChange={(event) => setOsintRegistryForm((current) => ({ ...current, source_key: event.target.value }))} />
+                        <input value={osintRegistryForm.title} onChange={(event) => setOsintRegistryForm((current) => ({ ...current, title: event.target.value }))} />
+                        <input value={osintRegistryForm.base_url} onChange={(event) => setOsintRegistryForm((current) => ({ ...current, base_url: event.target.value }))} />
+                        <textarea value={osintRegistryForm.description} onChange={(event) => setOsintRegistryForm((current) => ({ ...current, description: event.target.value }))} />
+                        <div className="composer-actions">
+                          <button type="button" className="ghost-button" onClick={handleCreateOsintRegistryEntry}>
+                            Adicionar seed
+                          </button>
+                        </div>
+                      </div>
+                      <div className="run-grid">
+                        {osintRegistry.slice(0, 12).map((entry) => (
+                          <button key={entry.id} type="button" className="job-row">
+                            <strong>{entry.title}</strong>
+                            <span>{entry.connector_id || entry.category}</span>
+                            <small>{compactText(entry.base_url, 68)}</small>
+                          </button>
+                        ))}
+                      </div>
+                      <pre className="preview-text compact">
+                        {JSON.stringify(
+                          {
+                            selected_investigation: selectedInvestigation
+                              ? {
+                                  id: selectedInvestigation.id,
+                                  connectors: selectedInvestigation.enabled_connector_ids,
+                                  source_registry_ids: selectedInvestigation.source_registry_ids
+                                }
+                              : null,
+                            recent_runs: osintRuns.slice(0, 5).map((run) => ({
+                              kind: run.run_kind,
+                              status: run.status,
+                              query: run.query,
+                              created_at: run.created_at
+                            }))
+                          },
+                          null,
+                          2
+                        )}
+                      </pre>
+                    </div>
+                  </div>
                 </section>
               </div>
             )}

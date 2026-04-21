@@ -286,6 +286,162 @@ class RemoteTrainPlaneConfig(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
+class OsintConnectorConfig(SQLModel, table=True):
+    connector_id: str = Field(primary_key=True)
+    label: str
+    category: str = Field(index=True)
+    connector_kind: str = "search_provider"
+    description: str = ""
+    enabled_global: bool = True
+    enabled_by_default: bool = True
+    project_overrides_json: str = "{}"
+    requires_credential: bool = False
+    credential_env: Optional[str] = None
+    priority: int = 100
+    health_status: str = "unknown"
+    allowed_modes_json: str = "[]"
+    training_allowed: bool = False
+    retention_policy: str = "metadata_only"
+    via_tor_allowed: bool = False
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class OsintSourceRegistryEntry(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    source_key: str = Field(index=True, unique=True)
+    connector_id: Optional[str] = Field(default=None, foreign_key="osintconnectorconfig.connector_id", index=True)
+    title: str
+    category: str = Field(index=True)
+    access_type: str = "web"
+    base_url: str = ""
+    description: str = ""
+    retention_policy: str = "metadata_only"
+    training_allowed: bool = False
+    reliability: float = 0.5
+    jurisdiction_tags_json: str = "[]"
+    preset_tags_json: str = "[]"
+    tor_supported: bool = False
+    api_auth_required: bool = False
+    robots_sensitive: bool = False
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class OsintInvestigation(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    project_id: Optional[str] = Field(default=None, foreign_key="project.id", index=True)
+    session_id: Optional[str] = Field(default=None, foreign_key="chatsession.id", index=True)
+    title: str
+    objective: str = ""
+    target_entity: str = ""
+    language: str = "pt-BR"
+    jurisdiction: str = "global"
+    mode: str = "balanced"
+    status: str = Field(default="active", index=True)
+    enabled_connector_ids_json: str = "[]"
+    source_registry_ids_json: str = "[]"
+    allowed_domains_json: str = "[]"
+    blocked_domains_json: str = "[]"
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class OsintRun(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    investigation_id: str = Field(foreign_key="osintinvestigation.id", index=True)
+    run_kind: str = Field(index=True)
+    status: str = Field(default="queued", index=True)
+    query: str = ""
+    connector_ids_json: str = "[]"
+    via_tor: bool = False
+    log_path: str = ""
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class OsintSource(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    investigation_id: Optional[str] = Field(default=None, foreign_key="osintinvestigation.id", index=True)
+    run_id: Optional[str] = Field(default=None, foreign_key="osintrun.id", index=True)
+    registry_entry_id: Optional[str] = Field(default=None, foreign_key="osintsourceregistryentry.id", index=True)
+    connector_id: str = Field(index=True)
+    provider: str = ""
+    title: str = ""
+    url: str
+    canonical_url: str = ""
+    snippet: str = ""
+    rank: int = 0
+    search_query: str = ""
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class OsintCapture(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    investigation_id: Optional[str] = Field(default=None, foreign_key="osintinvestigation.id", index=True)
+    source_id: Optional[str] = Field(default=None, foreign_key="osintsource.id", index=True)
+    connector_id: str = Field(index=True)
+    url: str
+    canonical_url: str = ""
+    title: str = ""
+    content_type: str = ""
+    content_hash: str = Field(index=True)
+    snapshot_path: str = ""
+    normalized_path: str = ""
+    published_at: Optional[datetime] = None
+    fetched_at: datetime = Field(default_factory=utc_now, nullable=False)
+    via_tor: bool = False
+    license_policy: str = "metadata_only"
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class OsintEvidence(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    investigation_id: str = Field(foreign_key="osintinvestigation.id", index=True)
+    source_id: Optional[str] = Field(default=None, foreign_key="osintsource.id", index=True)
+    capture_id: Optional[str] = Field(default=None, foreign_key="osintcapture.id", index=True)
+    title: str
+    content: str
+    validation_status: str = Field(default="pending", index=True)
+    source_quality: float = 0.5
+    entity_ids_json: str = "[]"
+    claim_ids_json: str = "[]"
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class OsintClaim(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    investigation_id: str = Field(foreign_key="osintinvestigation.id", index=True)
+    evidence_ids_json: str = "[]"
+    title: str
+    content: str
+    confidence: float = 0.5
+    status: str = Field(default="pending", index=True)
+    memory_record_id: Optional[str] = Field(default=None, foreign_key="memoryrecord.id", index=True)
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class OsintEntity(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    investigation_id: str = Field(foreign_key="osintinvestigation.id", index=True)
+    name: str
+    entity_type: str = Field(default="generic", index=True)
+    aliases_json: str = "[]"
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
 class ProjectDeployment(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     project_id: str = Field(foreign_key="project.id", index=True)

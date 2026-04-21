@@ -17,8 +17,9 @@ As areas oficiais do Orquestra hoje sao:
 3. `Memory Studio`
 4. `Execution Center`
 5. `Assistant Workspace`
-6. `Workspace Browser`
-7. `Projects`
+6. `OSINT Lab`
+7. `Workspace Browser`
+8. `Projects`
 
 ## Fluxo recomendado de uso
 1. escolha ou crie um projeto em `Projects`
@@ -29,8 +30,9 @@ As areas oficiais do Orquestra hoje sao:
 6. compacte a sessao quando o contexto crescer
 7. reconstrua o planner quando a abordagem mudar
 8. use `Execution Center` para workflows, jobs e consulta RAG
-9. use `Memory Studio` para recall, promocao e revisao global
-10. use `Workspace Browser` para anexar diretorios e promover ativos relevantes
+9. use `OSINT Lab` para investigacao web, conectores e aprovacao de claims
+10. use `Memory Studio` para recall, promocao e revisao global
+11. use `Workspace Browser` para anexar diretorios e promover ativos relevantes
 
 ## Assistant Workspace
 O `Assistant Workspace` e o centro da operacao de chat.
@@ -70,9 +72,10 @@ Quando o chat monta contexto, a ordem operacional e:
 2. snapshot compacto
 3. planner
 4. memoria relevante
-5. workspace/fontes
-6. RAG legado
-7. mensagem atual
+5. OSINT evidence
+6. workspace/fontes
+7. RAG legado
+8. mensagem atual
 
 ### Flags com efeito real
 As flags abaixo ja tem efeito real em `chat/stream` e `rag/query`:
@@ -115,6 +118,43 @@ O `Memory Studio` centraliza a memoria do sistema.
 - memoria duravel so entra com aprovacao explicita
 - dataset nao nasce automaticamente do chat
 - fallback lexical protege o fluxo quando vetor/embeddings falham
+- memoria derivada de OSINT preserva `citations`, `source_url`, `claim_id` e `evidence_ids`
+
+## OSINT Lab
+O `OSINT Lab` adiciona uma trilha nativa de investigacao web dentro do Orquestra.
+
+### O que pode ser feito
+- criar investigacoes com objetivo, entidade-alvo, idioma e jurisdicao
+- planejar queries e seeds
+- buscar fontes web com conectores habilitados
+- fazer fetch normalizado de resultados
+- revisar evidencias e claims
+- aprovar claims e promover memoria rastreavel
+- exportar bundles locais para treino futuro
+
+### Componentes do dominio
+- `OsintInvestigation`
+- `OsintRun`
+- `OsintSource`
+- `OsintCapture`
+- `OsintEvidence`
+- `OsintClaim`
+- `OsintEntity`
+
+### Conectores administráveis
+- cada conector pode ser ligado ou desligado globalmente
+- cada investigacao escolhe seus conectores ativos
+- o painel mostra `credential_status`, `health_status` e `retention_policy`
+
+### Fluxo recomendado
+1. criar a investigacao
+2. selecionar conectores ativos
+3. planejar as queries
+4. executar a busca
+5. fazer fetch das fontes mais relevantes
+6. aprovar evidencias
+7. aprovar claims
+8. promover memoria ou exportar dataset
 
 ## Workspace Browser
 O `Workspace Browser` conecta diretorios locais ao contexto do Orquestra.
@@ -215,6 +255,7 @@ O `Execution Center` concentra execucao, conectores, registry e consulta RAG.
 - runs operacionais
 - workflows locais multi-step
 - conectores e jobs
+- resumo do `OSINT Connector Hub`
 - registry e comparacao
 - consulta RAG operacional
 
