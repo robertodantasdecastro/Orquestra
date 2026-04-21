@@ -288,15 +288,18 @@ Variaveis comuns:
 - `orquestra_web/`: frontend React/Vite e shell desktop Tauri
 - `rag/`: engine RAG local integrado
 - `scripts/`: bootstrap, start, validacao, instalacao e empacotamento
-- `assets/brand/`: logo padrao, wordmark legado e identidade visual
+- `assets/brand/`: wordmark oficial, icone oficial e identidade visual
 - `docs/`: documentacao de operacao, arquitetura e continuidade
 
-Logo padrao:
+Identidade visual padrao:
 
-- fonte recebida: `Logo1.png`
-- asset canonico para documentacao: `assets/brand/orquestra-logo.png`
-- asset otimizado para UI: `orquestra_web/src/assets/orquestra-logo.png`
-- icones macOS/Tauri: `orquestra_web/src-tauri/icons/`
+- `Logo1.png`: wordmark original com texto
+- `Logo2.png`: variante oficial `icon-only`
+- `assets/brand/orquestra-logo.png`: asset canonico com texto para documentacao e superfícies amplas
+- `assets/brand/orquestra-icon.png`: asset canonico sem texto para icones e app chrome
+- `orquestra_web/src/assets/orquestra-logo.png`: wordmark otimizado para UI quando texto dentro da imagem fizer sentido
+- `orquestra_web/src/assets/orquestra-icon.png`: icone otimizado para UI
+- `orquestra_web/src-tauri/icons/`: icones macOS/Tauri derivados da versao sem texto
 
 ## Status atual e proximas etapas
 

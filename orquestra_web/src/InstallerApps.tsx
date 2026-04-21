@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import orquestraLogo from "./assets/orquestra-logo.png";
+import orquestraLogo from "./assets/orquestra-icon.png";
 
 declare global {
   interface Window {
@@ -118,7 +118,7 @@ function WizardShell({
       <aside className="installer-rail">
         <div className="rail-brand">
           <div className="brand-chip">
-            <img src={orquestraLogo} alt="Orquestra AI" />
+            <img src={orquestraLogo} alt="Ícone Orquestra AI" />
           </div>
           <div>
             <strong>{title}</strong>

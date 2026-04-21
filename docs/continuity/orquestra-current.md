@@ -36,7 +36,7 @@ O ciclo atual adiciona:
 - `runtime.json`
 - Keychain service `ai.orquestra.secrets`
 - router interno de modelos/agentes
-- logo padrao derivada de `Logo1.png`
+- identidade visual separada entre `Logo1.png` com texto e `Logo2.png` `icon-only`
 
 ## Artefatos principais
 

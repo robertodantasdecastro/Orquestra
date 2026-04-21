@@ -15,11 +15,19 @@ A entrega V1 gera:
 
 O DMG simples `Orquestra AI_0.2.0_aarch64.dmg` continua sendo apenas o pacote do app. O wizard completo e o DMG `Orquestra AI Installer_*`.
 
-A identidade visual padrao usada no app, no instalador, no desinstalador, no icon macOS e na documentacao vem de:
+A identidade visual padrao agora segue duas variantes:
 
 ```text
-assets/brand/orquestra-logo.png
+Logo1.png -> wordmark com texto
+Logo2.png -> icon-only
+assets/brand/orquestra-logo.png -> wordmark canonico
+assets/brand/orquestra-icon.png -> icone canonico
 ```
+
+Regra de uso:
+
+- documentacao e cabecalhos amplos podem usar o wordmark com texto
+- sidebar, chips, app icon, `.icns` e `.ico` usam apenas o icone sem texto
 
 ## Quando usar
 

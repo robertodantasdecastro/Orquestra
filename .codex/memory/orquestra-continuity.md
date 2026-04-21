@@ -37,8 +37,10 @@
   - `docs/11-orquestra-ai-control-plane.md`
   - `docs/12-orquestra-v2-memorygraph-workspace.md`
   - `assets/brand/orquestra-logo.png`
+  - `assets/brand/orquestra-icon.png`
   - `icon.png`
   - `orquestra_web/src/assets/orquestra-logo.png`
+  - `orquestra_web/src/assets/orquestra-icon.png`
   - `orquestra_web/src-tauri/icons/`
   - `orquestra_ai/storage.py`
   - `orquestra_ai/secret_store.py`
@@ -73,7 +75,7 @@
   - foi criado `Orquestra Installer.app` e `Orquestra Uninstaller.app` como modos Tauri dedicados
   - foi criado `Orquestra AI Installer_0.2.0_aarch64.dmg` com app, installer, uninstaller e README de instalacao
   - o dashboard agora mostra instalador CLI, desinstalador CLI, instalador grafico e DMG grafico
-  - a logo padrao passou a ser `Logo1.png`, projetada em `assets/brand/orquestra-logo.png`, assets web e icones Tauri/macOS
+  - a identidade visual passou a separar `Logo1.png` como wordmark e `Logo2.png` como `icon-only`, com projeções em `assets/brand/`, `orquestra_web/src/assets/` e icones Tauri/macOS
   - a documentacao foi atualizada para instalador grafico, Settings Center, Storage Fabric, Keychain e router
 - O que validar na retomada:
   - abrir o DMG grafico e testar cliques reais do wizard

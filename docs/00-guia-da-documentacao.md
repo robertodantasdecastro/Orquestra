@@ -4,10 +4,13 @@
 
 Este arquivo organiza a documentacao oficial do Orquestra e indica qual documento ler em cada situacao.
 
-Logo padrao do projeto:
+Identidade visual do projeto:
 
 ```text
-assets/brand/orquestra-logo.png
+Logo1.png -> wordmark com texto
+Logo2.png -> icon-only
+assets/brand/orquestra-logo.png -> wordmark canonico
+assets/brand/orquestra-icon.png -> icone canonico
 ```
 
 ## Leitura recomendada por perfil
