@@ -61,6 +61,12 @@ Esse script executa:
 - staging com payload local
 - criacao do DMG completo
 
+Observacao operacional importante:
+
+- `Orquestra Installer.app` e `Orquestra Uninstaller.app` sao empacotados como `.app` dedicados.
+- o DMG final `Orquestra AI Installer_*` e montado pelo script oficial do Orquestra.
+- isso evita depender do `bundle_dmg.sh` do Tauri para os wizards dedicados e torna o empacotamento mais estavel.
+
 Artefato final:
 
 ```text
@@ -157,6 +163,14 @@ O instalador grafico mostra:
    - abrir Settings Center
    - mostrar caminhos reais
    - mostrar pendencias opcionais
+
+Ao clicar em `Instalar agora`, o wizard abre um dialogo de execucao com:
+
+- barra de progresso
+- etapa atual
+- lista de passos
+- log detalhado do processo
+- estado final de sucesso ou falha sem despejar o erro bruto na barra lateral
 
 ## Fluxo do Orquestra Uninstaller.app
 

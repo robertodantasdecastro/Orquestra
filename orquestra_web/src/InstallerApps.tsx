@@ -19,6 +19,16 @@ type CommandResult = {
   message?: string;
 };
 
+type InstallDialogState = {
+  open: boolean;
+  running: boolean;
+  progress: number;
+  stepIndex: number;
+  status: "idle" | "running" | "succeeded" | "failed";
+  summary: string;
+  log: string;
+};
+
 type InstallPlan = {
   kind: "InstallPlan";
   generated_at: string;
@@ -83,7 +93,7 @@ const mockInstallPlan: InstallPlan = {
   ]
 };
 
-async function invokeJson<T>(command: string, args?: Record<string, unknown>, fallback?: T): Promise<T> {
+async function resolveInvoke() {
   let invoke = window.__TAURI__?.core?.invoke;
   if (!invoke) {
     try {
@@ -94,11 +104,28 @@ async function invokeJson<T>(command: string, args?: Record<string, unknown>, fa
     }
   }
   if (!invoke) {
-    if (fallback !== undefined) return fallback;
     throw new Error("Comandos Tauri indisponíveis neste ambiente.");
   }
-  const raw = await invoke(command, args);
-  const result = JSON.parse(raw) as CommandResult;
+  return invoke;
+}
+
+async function invokeCommand(command: string, args?: Record<string, unknown>, fallback?: CommandResult): Promise<CommandResult> {
+  try {
+    const invoke = await resolveInvoke();
+    const raw = await invoke(command, args);
+    return JSON.parse(raw) as CommandResult;
+  } catch (error) {
+    if (fallback !== undefined) return fallback;
+    throw error;
+  }
+}
+
+async function invokeJson<T>(command: string, args?: Record<string, unknown>, fallback?: T): Promise<T> {
+  const result = await invokeCommand(
+    command,
+    args,
+    fallback !== undefined ? ({ success: true, stdout: JSON.stringify(fallback) } as CommandResult) : undefined
+  );
   if (result.success === false) {
     throw new Error(result.stderr || result.message || `Comando falhou: ${command}`);
   }
@@ -156,7 +183,17 @@ export function InstallerApp() {
   const [status, setStatus] = useState("Aguardando diagnóstico inicial.");
   const [requiredOnly, setRequiredOnly] = useState(false);
   const [selectedOptional, setSelectedOptional] = useState<Set<string>>(new Set(["tor", "ffmpeg"]));
+  const [installDialog, setInstallDialog] = useState<InstallDialogState>({
+    open: false,
+    running: false,
+    progress: 0,
+    stepIndex: 0,
+    status: "idle",
+    summary: "",
+    log: ""
+  });
   const missingRequired = useMemo(() => plan?.dependencies.filter((item) => !item.installed) ?? [], [plan]);
+  const installSteps = plan?.steps?.length ? plan.steps : mockInstallPlan.steps;
 
   async function refresh() {
     setStatus("Executando preflight gráfico...");
@@ -170,24 +207,101 @@ export function InstallerApp() {
   }
 
   async function runInstall() {
-    setStatus("Instalação iniciada. O log final aparecerá aqui quando o script terminar.");
+    const selectedOptionalList = Array.from(selectedOptional);
+    const runtimePath = plan?.paths.runtime ?? mockInstallPlan.paths.runtime;
+    const installLogLines = [
+      "Instalação iniciada.",
+      `Runtime alvo: ${runtimePath}`,
+      `Modo: ${requiredOnly ? "somente núcleo obrigatório" : "núcleo + opcionais"}`,
+      `Opcionais selecionados: ${selectedOptionalList.length ? selectedOptionalList.join(", ") : "nenhum"}`,
+      "",
+      "Aguarde enquanto o instalador executa os passos e coleta os detalhes finais do processo."
+    ];
+    setStatus("Instalação em andamento. Acompanhe o progresso no painel de execução.");
+    setInstallDialog({
+      open: true,
+      running: true,
+      progress: 8,
+      stepIndex: 0,
+      status: "running",
+      summary: "Preparando execução do instalador gráfico.",
+      log: installLogLines.join("\n")
+    });
     try {
       const optionalCsv = Array.from(selectedOptional).join(",");
-      const result = await invokeJson<CommandResult>("installer_run_plan", {
+      const result = await invokeCommand("installer_run_plan", {
         requiredOnly,
         optionalCsv,
         configureEnv: false
       });
-      setStatus(result.stdout || result.message || "Instalação finalizada.");
-      await refresh();
+      const combinedLog = [result.stdout?.trim(), result.stderr?.trim()].filter(Boolean).join("\n\n");
+      if (result.success === false || result.code) {
+        const summary = result.stderr?.trim() || result.stdout?.trim() || result.message || "Falha na instalação.";
+        setStatus("Falha na instalação. Consulte o painel de execução para detalhes.");
+        setInstallDialog({
+          open: true,
+          running: false,
+          progress: 100,
+          stepIndex: Math.max(0, installSteps.length - 1),
+          status: "failed",
+          summary,
+          log: combinedLog || summary
+        });
+        return;
+      }
+      const summary = result.stdout?.trim() || result.message || "Instalação finalizada.";
+      setStatus("Instalação concluída. Runtime e aplicativo preparados com sucesso.");
+      setInstallDialog({
+        open: true,
+        running: false,
+        progress: 100,
+        stepIndex: Math.max(0, installSteps.length - 1),
+        status: "succeeded",
+        summary: "Instalação concluída com sucesso.",
+        log: combinedLog || summary
+      });
     } catch (error) {
-      setStatus(`Falha na instalação: ${String(error)}`);
+      const detail = String(error);
+      setStatus("Falha na instalação. Consulte o painel de execução para detalhes.");
+      setInstallDialog({
+        open: true,
+        running: false,
+        progress: 100,
+        stepIndex: Math.max(0, installSteps.length - 1),
+        status: "failed",
+        summary: `Falha na instalação: ${detail}`,
+        log: detail
+      });
     }
   }
 
   useEffect(() => {
     refresh();
   }, []);
+
+  useEffect(() => {
+    if (!installDialog.running) {
+      return;
+    }
+    const totalSteps = Math.max(installSteps.length, 3);
+    const timer = window.setInterval(() => {
+      setInstallDialog((current) => {
+        if (!current.running) return current;
+        const nextProgress = Math.min(current.progress + 6, 92);
+        const nextStepIndex = Math.min(
+          totalSteps - 1,
+          Math.max(current.stepIndex, Math.floor((nextProgress / 100) * totalSteps))
+        );
+        return {
+          ...current,
+          progress: nextProgress,
+          stepIndex: nextStepIndex,
+          summary: installSteps[nextStepIndex]?.label || "Executando instalador do Orquestra..."
+        };
+      });
+    }, 900);
+    return () => window.clearInterval(timer);
+  }, [installDialog.running, installSteps]);
 
   return (
     <WizardShell title="Orquestra Installer" subtitle="Instalação gráfica local-first" status={status}>
@@ -199,8 +313,10 @@ export function InstallerApp() {
           para que memória, RAG, OSINT e workflows tenham caminhos rastreáveis.
         </p>
         <div className="composer-actions">
-          <button className="primary-button" type="button" onClick={runInstall}>Instalar agora</button>
-          <button className="ghost-button" type="button" onClick={refresh}>Revalidar</button>
+          <button className="primary-button" type="button" onClick={runInstall} disabled={installDialog.running}>
+            {installDialog.running ? "Instalando..." : "Instalar agora"}
+          </button>
+          <button className="ghost-button" type="button" onClick={refresh} disabled={installDialog.running}>Revalidar</button>
         </div>
       </section>
 
@@ -268,6 +384,86 @@ export function InstallerApp() {
           </div>
         </article>
       </section>
+
+      {installDialog.open && (
+        <div className="installer-modal-overlay" role="dialog" aria-modal="true" aria-label="Execução da instalação">
+          <div className="installer-modal">
+            <div className="panel-head">
+              <div>
+                <p className="eyebrow">Execução</p>
+                <h3>
+                  {installDialog.status === "running"
+                    ? "Instalação em andamento"
+                    : installDialog.status === "succeeded"
+                      ? "Instalação concluída"
+                      : "Falha na instalação"}
+                </h3>
+              </div>
+              {!installDialog.running && (
+                <button className="ghost-button" type="button" onClick={() => setInstallDialog((current) => ({ ...current, open: false }))}>
+                  Fechar
+                </button>
+              )}
+            </div>
+
+            <div className="installer-progress-meta">
+              <strong>{installDialog.summary}</strong>
+              <span>{Math.round(installDialog.progress)}%</span>
+            </div>
+            <div className="installer-progress-track" aria-hidden="true">
+              <div className="installer-progress-fill" style={{ width: `${installDialog.progress}%` }} />
+            </div>
+
+            <div className="installer-step-list">
+              {installSteps.map((step, index) => {
+                const state =
+                  index < installDialog.stepIndex
+                    ? "done"
+                    : index === installDialog.stepIndex
+                      ? installDialog.status === "failed"
+                        ? "failed"
+                        : installDialog.running
+                          ? "active"
+                          : installDialog.status === "succeeded"
+                            ? "done"
+                            : "pending"
+                      : installDialog.status === "succeeded"
+                        ? "done"
+                        : "pending";
+                return (
+                  <div className={`installer-step ${state}`} key={step.id}>
+                    <span className="installer-step-badge">{index + 1}</span>
+                    <div>
+                      <strong>{step.label}</strong>
+                      <small>
+                        {state === "done"
+                          ? "concluído"
+                          : state === "active"
+                            ? "em execução"
+                            : state === "failed"
+                              ? "interrompido"
+                              : "pendente"}
+                      </small>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="installer-log-panel">
+              <div className="panel-head slim">
+                <div>
+                  <p className="eyebrow">Detalhes</p>
+                  <h3>Log do processo</h3>
+                </div>
+              </div>
+              <pre className="installer-log-output">
+                {installDialog.log || "A instalação está em andamento. Os detalhes finais aparecem aqui ao concluir."}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
     </WizardShell>
   );
 }

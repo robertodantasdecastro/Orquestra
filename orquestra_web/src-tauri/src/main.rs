@@ -91,7 +91,14 @@ fn installer_build_plan() -> Result<String, String> {
 
 #[tauri::command]
 fn installer_run_plan(required_only: bool, optional_csv: String, configure_env: bool) -> Result<String, String> {
-    let mut args = vec!["--yes", "--emit-events", "--no-tty", "--no-secrets-output"];
+    let mut args = vec![
+        "--yes",
+        "--skip-build",
+        "--skip-validation",
+        "--emit-events",
+        "--no-tty",
+        "--no-secrets-output",
+    ];
     if required_only {
         args.push("--required-only");
     }

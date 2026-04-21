@@ -1242,7 +1242,10 @@ describe("App", () => {
         expect.objectContaining({ requiredOnly: false, optionalCsv: "tor,ffmpeg", configureEnv: false })
       )
     );
-    await waitFor(() => expect(screen.getByText("Plano de instalação carregado.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Execução da instalação" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Instalação concluída")).toBeInTheDocument());
+    expect(screen.getByText("Instalação concluída com sucesso.")).toBeInTheDocument();
+    expect(screen.getByText(/\[orquestra-full-install\] instalacao completa concluida/i)).toBeInTheDocument();
 
     window.__TAURI__ = originalTauri;
   });

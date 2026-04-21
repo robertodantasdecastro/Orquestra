@@ -238,6 +238,8 @@ Esse DMG contem:
 - `Orquestra AI.app`
 - `README Instalação.txt`
 
+No wizard grafico, o clique em `Instalar agora` abre um dialogo de execucao com barra de progresso, etapas e log detalhado do processo.
+
 Guia completo:
 
 - [docs/01-instalacao-validacao-macos.md](docs/01-instalacao-validacao-macos.md)
