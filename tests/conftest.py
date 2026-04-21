@@ -16,6 +16,11 @@ from orquestra_ai.config import load_settings
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
+    runtime_dir = tmp_path / "runtime"
+    runtime_config = runtime_dir / "config" / "runtime.json"
+    monkeypatch.setenv("ORQUESTRA_RUNTIME_DIR", str(runtime_dir))
+    monkeypatch.setenv("ORQUESTRA_RUNTIME_CONFIG", str(runtime_config))
+    monkeypatch.setenv("ORQUESTRA_USE_INSTALLED_RUNTIME", "1")
     monkeypatch.setenv("ORQUESTRA_DATABASE_URL", f"sqlite:///{tmp_path / 'orquestra-test.db'}")
     monkeypatch.setenv("ORQUESTRA_QDRANT_PATH", str(tmp_path / "qdrant"))
     monkeypatch.setenv("ORQUESTRA_APP_VERSION", "test-suite")

@@ -34,7 +34,7 @@ def test_settings_storage_blocks_remote_active_domain(client):
     assert "não podem usar" in blocked.text
 
 
-def test_runtime_json_can_be_written(client):
+def test_runtime_json_can_be_written(client, tmp_path):
     response = client.put(
         "/api/settings/runtime",
         json={
@@ -47,6 +47,7 @@ def test_runtime_json_can_be_written(client):
     payload = response.json()
     config_path = Path(payload["runtime_config_written"])
     assert config_path.exists()
+    assert str(config_path).startswith(str(tmp_path))
     config = json.loads(config_path.read_text(encoding="utf-8"))
     assert config["data_root"] == "/tmp/orquestra-data"
 
@@ -92,4 +93,3 @@ def test_installer_json_contracts_are_available():
     uninstall_payload = json.loads(uninstall.stdout)
     assert uninstall_payload["kind"] == "UninstallPlan"
     assert any(item["id"] == "memory" for item in uninstall_payload["items"])
-
