@@ -1174,6 +1174,79 @@ describe("App", () => {
     expect(screen.getByText("Dependências obrigatórias")).toBeInTheDocument();
   });
 
+  it("executa o instalador gráfico com bridge Tauri e aceita stdout textual", async () => {
+    const originalTauri = window.__TAURI__;
+    const invoke = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          success: true,
+          stdout: JSON.stringify({
+            kind: "InstallPlan",
+            generated_at: new Date().toISOString(),
+            version: "0.2.0",
+            platform: { system: "Darwin", machine: "arm64", release: "test" },
+            paths: {
+              installed_app: "~/Applications/Orquestra AI.app",
+              runtime: "~/Library/Application Support/Orquestra/runtime",
+              runtime_config: "~/Library/Application Support/Orquestra/runtime/config/runtime.json"
+            },
+            dependencies: [
+              { command: "brew", installed: true, path: "/opt/homebrew/bin/brew", required: true }
+            ],
+            optional_features: [],
+            providers: [],
+            runtime_storage: {},
+            steps: []
+          })
+        })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          success: true,
+          stdout: "[orquestra-full-install] instalacao completa concluida"
+        })
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          success: true,
+          stdout: JSON.stringify({
+            kind: "InstallPlan",
+            generated_at: new Date().toISOString(),
+            version: "0.2.0",
+            platform: { system: "Darwin", machine: "arm64", release: "test" },
+            paths: {
+              installed_app: "~/Applications/Orquestra AI.app",
+              runtime: "~/Library/Application Support/Orquestra/runtime",
+              runtime_config: "~/Library/Application Support/Orquestra/runtime/config/runtime.json"
+            },
+            dependencies: [
+              { command: "brew", installed: true, path: "/opt/homebrew/bin/brew", required: true }
+            ],
+            optional_features: [],
+            providers: [],
+            runtime_storage: {},
+            steps: []
+          })
+        })
+      );
+    window.__TAURI__ = { core: { invoke } };
+
+    render(<InstallerApp />);
+
+    await waitFor(() => expect(screen.getByText("Base obrigatória pronta.")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Instalar agora/i }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "installer_run_plan",
+        expect.objectContaining({ requiredOnly: false, optionalCsv: "tor,ffmpeg", configureEnv: false })
+      )
+    );
+    await waitFor(() => expect(screen.getByText("Plano de instalação carregado.")).toBeInTheDocument());
+
+    window.__TAURI__ = originalTauri;
+  });
+
   it("renderiza o desinstalador gráfico em fallback sem Tauri", async () => {
     render(<UninstallerApp />);
 

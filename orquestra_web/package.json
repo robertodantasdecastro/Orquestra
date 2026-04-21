@@ -15,6 +15,7 @@
     "desktop:build:distribution": "npm run desktop:build && npm run desktop:build:installer && npm run desktop:build:uninstaller"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

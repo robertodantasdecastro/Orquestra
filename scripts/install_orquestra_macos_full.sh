@@ -15,6 +15,7 @@ OPTIONAL_LIST=""
 JSON_MODE="false"
 EMIT_EVENTS="false"
 PLAN_FILE=""
+OPTIONAL_WARNINGS=()
 
 usage() {
   cat <<'USAGE'
@@ -218,16 +219,59 @@ install_formula_optional() {
     echo "[orquestra-full-install] optional_missing: ${formula}; fix: brew install ${formula}"
     return 0
   fi
-  "$(brew_bin)" install "${formula}"
+  if ! "$(brew_bin)" install "${formula}"; then
+    OPTIONAL_WARNINGS+=("${formula}: falha ao instalar via Homebrew; seguindo sem bloquear o núcleo do Orquestra.")
+    echo "[orquestra-full-install] aviso opcional: ${formula} falhou; seguindo sem bloquear a instalacao"
+  fi
+}
+
+cask_known_app_path() {
+  local cask="$1"
+  case "${cask}" in
+    lm-studio)
+      if [[ -d "/Applications/LM Studio.app" ]]; then
+        printf '/Applications/LM Studio.app'
+        return 0
+      fi
+      if [[ -d "${HOME}/Applications/LM Studio.app" ]]; then
+        printf '%s/Applications/LM Studio.app' "${HOME}"
+        return 0
+      fi
+      ;;
+    brave-browser)
+      if [[ -d "/Applications/Brave Browser.app" ]]; then
+        printf '/Applications/Brave Browser.app'
+        return 0
+      fi
+      if [[ -d "${HOME}/Applications/Brave Browser.app" ]]; then
+        printf '%s/Applications/Brave Browser.app' "${HOME}"
+        return 0
+      fi
+      ;;
+  esac
+  return 1
 }
 
 install_cask_optional() {
   local cask="$1"
+  local existing_app=""
+  if "$(brew_bin)" list --cask "${cask}" >/dev/null 2>&1; then
+    echo "[orquestra-full-install] opcional ja instalado via Homebrew: ${cask}"
+    return 0
+  fi
+  existing_app="$(cask_known_app_path "${cask}" || true)"
+  if [[ -n "${existing_app}" ]]; then
+    echo "[orquestra-full-install] opcional ja disponivel: ${cask} (${existing_app})"
+    return 0
+  fi
   if [[ "${CHECK_ONLY}" == "true" ]]; then
     echo "[orquestra-full-install] optional cask: ${cask}; fix: brew install --cask ${cask}"
     return 0
   fi
-  "$(brew_bin)" install --cask "${cask}"
+  if ! "$(brew_bin)" install --cask "${cask}"; then
+    OPTIONAL_WARNINGS+=("${cask}: falha ao instalar o app opcional; verifique se já existe uma cópia em /Applications.")
+    echo "[orquestra-full-install] aviso opcional: ${cask} falhou; seguindo sem bloquear a instalacao"
+  fi
 }
 
 optional_selected() {
@@ -375,7 +419,10 @@ fi
 if optional_selected "tor"; then
   install_formula_optional "tor" "tor"
   if [[ "${CHECK_ONLY}" != "true" ]]; then
-    "$(brew_bin)" services start tor || true
+    if ! "$(brew_bin)" services start tor; then
+      OPTIONAL_WARNINGS+=("tor: serviço local não iniciou automaticamente; inicie manualmente se quiser usar fetch via Tor.")
+      echo "[orquestra-full-install] aviso opcional: nao foi possivel iniciar o servico do Tor automaticamente"
+    fi
   fi
 fi
 if optional_selected "ollama"; then
@@ -448,3 +495,10 @@ echo "[orquestra-full-install] instalacao completa concluida"
 echo "  app: ${HOME}/Applications/Orquestra AI.app"
 echo "  runtime: ${HOME}/Library/Application Support/Orquestra/runtime"
 echo "  logs: ${HOME}/Library/Logs/Orquestra"
+if [[ ${#OPTIONAL_WARNINGS[@]} -gt 0 ]]; then
+  echo
+  echo "[orquestra-full-install] avisos opcionais:"
+  for warning in "${OPTIONAL_WARNINGS[@]}"; do
+    echo "  - ${warning}"
+  done
+fi

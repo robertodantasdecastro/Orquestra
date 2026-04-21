@@ -84,7 +84,15 @@ const mockInstallPlan: InstallPlan = {
 };
 
 async function invokeJson<T>(command: string, args?: Record<string, unknown>, fallback?: T): Promise<T> {
-  const invoke = window.__TAURI__?.core?.invoke;
+  let invoke = window.__TAURI__?.core?.invoke;
+  if (!invoke) {
+    try {
+      const tauri = await import("@tauri-apps/api/core");
+      invoke = tauri.invoke;
+    } catch {
+      invoke = undefined;
+    }
+  }
   if (!invoke) {
     if (fallback !== undefined) return fallback;
     throw new Error("Comandos Tauri indisponíveis neste ambiente.");
@@ -95,7 +103,15 @@ async function invokeJson<T>(command: string, args?: Record<string, unknown>, fa
     throw new Error(result.stderr || result.message || `Comando falhou: ${command}`);
   }
   if (!result.stdout) return result as T;
-  return JSON.parse(result.stdout) as T;
+  const stdout = result.stdout.trim();
+  if (stdout.startsWith("{") || stdout.startsWith("[")) {
+    try {
+      return JSON.parse(stdout) as T;
+    } catch {
+      return result as T;
+    }
+  }
+  return result as T;
 }
 
 function statusClass(ok: boolean) {

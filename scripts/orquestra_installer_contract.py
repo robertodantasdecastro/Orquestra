@@ -38,6 +38,13 @@ def command_status(command: str) -> dict[str, Any]:
     return {"command": command, "installed": bool(path), "path": path or "", "required": True}
 
 
+def first_existing_path(candidates: list[Path]) -> str:
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return ""
+
+
 def file_status(path: Path) -> dict[str, Any]:
     return {"path": str(path), "exists": path.exists(), "size_bytes": path.stat().st_size if path.exists() and path.is_file() else 0}
 
@@ -69,12 +76,18 @@ def build_install_plan() -> dict[str, Any]:
     paths = installed_paths(root)
     commands = ["xcode-select", "brew", "python3.12", "node", "npm", "cargo", "rustc", "uv", "git"]
     dependencies = [command_status(item) for item in commands]
+    lmstudio_app = first_existing_path(
+        [Path("/Applications/LM Studio.app"), Path.home() / "Applications" / "LM Studio.app"]
+    )
+    brave_app = first_existing_path(
+        [Path("/Applications/Brave Browser.app"), Path.home() / "Applications" / "Brave Browser.app"]
+    )
     optional = [
-        {"id": "lmstudio", "label": "LM Studio", "required": False, "configured": bool(shutil.which("lmstudio"))},
+        {"id": "lmstudio", "label": "LM Studio", "required": False, "configured": bool(lmstudio_app)},
         {"id": "ollama", "label": "Ollama", "required": False, "configured": bool(shutil.which("ollama"))},
         {"id": "tor", "label": "Tor proxy", "required": False, "configured": bool(shutil.which("tor"))},
         {"id": "ffmpeg", "label": "ffmpeg", "required": False, "configured": bool(shutil.which("ffmpeg"))},
-        {"id": "brave", "label": "Brave Browser", "required": False, "configured": Path("/Applications/Brave Browser.app").exists()},
+        {"id": "brave", "label": "Brave Browser", "required": False, "configured": bool(brave_app)},
     ]
     provider_keys = [
         "OPENAI_API_KEY",
@@ -216,4 +229,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

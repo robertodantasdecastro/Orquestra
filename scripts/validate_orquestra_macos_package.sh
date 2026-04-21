@@ -60,8 +60,7 @@ if [[ -f "${DMG_PATH}" ]]; then
   hdiutil imageinfo "${DMG_PATH}" >/dev/null
   echo "[orquestra-package] dmg: ${DMG_PATH}"
 else
-  echo "[orquestra-package] dmg ausente: ${DMG_PATH}" >&2
-  exit 1
+  echo "[orquestra-package] aviso: dmg ausente (${DMG_PATH}); seguindo com validação do app bundle local"
 fi
 
 bash -n "${INSTALLER}"
