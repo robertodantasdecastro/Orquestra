@@ -1,9 +1,9 @@
 # Orquestra Continuity
 
 - Branch atual: `main`
-- Último commit íntegro: `5061f0b`
-- Etapa concluída: `Implementação do OSINT nativo com busca web, conectores administráveis, evidência rastreável e integração com memória/RAG`
-- Estado do worktree: `pronto para checkpoint final desta etapa`
+- Último commit íntegro: `f250256`
+- Etapa concluída: `Atualização completa da documentação, manuais de uso e guias operacionais para OSINT, memória, workflows e Train Plane`
+- Estado do worktree: `pronto para checkpoint final da documentação`
 - Validações executadas:
   - `.venv/bin/python -m py_compile orquestra_ai/app.py orquestra_ai/services.py orquestra_ai/rag_memory.py orquestra_ai/osint.py orquestra_ai/models.py orquestra_ai/schema_state.py`
   - `.venv/bin/pytest -q`
@@ -18,6 +18,15 @@
 - Próxima ação exata:
   - `Validar manualmente o OSINT Lab com LM Studio/local providers reais e depois seguir para a próxima etapa do plano global: OCR/transcrição multimodal ou integrações AWS reais do Train Plane`
 - Arquivos principais tocados:
+  - `README.md`
+  - `docs/00-guia-da-documentacao.md`
+  - `docs/01-instalacao-validacao-macos.md`
+  - `docs/02-manual-operacional.md`
+  - `docs/03-osint-lab.md`
+  - `docs/04-train-plane.md`
+  - `docs/11-orquestra-ai-control-plane.md`
+  - `docs/12-orquestra-v2-memorygraph-workspace.md`
+  - `docs/continuity/orquestra-current.md`
   - `orquestra_ai/app.py`
   - `orquestra_ai/services.py`
   - `orquestra_ai/rag_memory.py`
@@ -26,11 +35,10 @@
   - `orquestra_web/src/App.tsx`
   - `tests/test_osint_api.py`
   - `orquestra_web/src/App.test.tsx`
-  - `README.md`
-  - `docs/02-manual-operacional.md`
-  - `docs/11-orquestra-ai-control-plane.md`
-  - `docs/12-orquestra-v2-memorygraph-workspace.md`
 - O que mudou:
+  - a documentacao principal foi reorganizada em guia, instalacao, manual operacional, OSINT Lab e Train Plane
+  - o `README` foi reescrito para refletir a superficie atual completa do produto
+  - os documentos tecnicos agora descrevem explicitamente memoria, contexto, OSINT, workspace e control plane
   - o `OsintService` foi integrado ao bootstrap e ao runtime do app
   - foram expostos endpoints `/api/osint/*` para config, conectores, source registry, investigações, search, fetch, crawl, evidence, claims e export
   - `chat/stream` e `rag/query` agora aceitam contexto/evidência OSINT e inserem `OSINT evidence` na montagem real do prompt

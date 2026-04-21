@@ -1,46 +1,43 @@
 # Orquestra AI Control Plane
 
 ## Objetivo
-Este documento descreve o desenho operacional do Orquestra como control plane local-first para:
+
+Este documento descreve a arquitetura operacional do Orquestra como control plane local-first para:
 
 - chat multi-provider
 - memoria persistente e memoria operacional
 - RAG contextual
-- investigacao OSINT nativa
+- investigacao OSINT
 - leitura multimodal de diretorios
 - planner de sessao
 - workflows locais multi-step
-- registro de jobs, modelos e artefatos
+- registro de modelos, jobs, artifacts e comparacoes
 
-## Componentes principais
-### Backend
+## Dominios principais
+
+### Backend local
+
+Arquivos centrais:
+
 - `orquestra_ai/app.py`
 - `orquestra_ai/services.py`
 - `orquestra_ai/models.py`
 
-O backend:
-- serve a API
-- coordena sessao, memoria, planner e workflow
-- executa bootstrap de runtime por `lifespan`
-- expõe saude, dashboard e endpoints de produto
+Responsabilidades:
 
-### Train Plane remoto
-- `orquestra_trainplane/app.py`
-- `orquestra_trainplane/worker.py`
-- `orquestra_trainplane/models.py`
-- `orquestra_trainplane/services.py`
-
-O servico remoto:
-- expõe auth por bootstrap admin + `TOTP` + `PAT`
-- recebe `base models` e `dataset bundles`
-- executa `training runs` adapter-first em modo validavel
-- publica `artifacts`, `evaluation runs` e `comparison runs`
-- serve um console web remoto simplificado para operacao e inspeção
+- servir a API
+- coordenar chat, memoria, planner, workflow, workspace e OSINT
+- expor dashboard, saude e contratos publicos
+- atuar como proxy para o `Remote Train Plane`
 
 ### Gateway de modelos
+
+Arquivo:
+
 - `orquestra_ai/gateway.py`
 
 Providers suportados:
+
 - `lmstudio`
 - `openai`
 - `anthropic`
@@ -49,6 +46,9 @@ Providers suportados:
 - `litellm`
 
 ### Memoria e contexto
+
+Arquivos:
+
 - `orquestra_ai/memory_graph.py`
 - `orquestra_ai/memory_recall.py`
 - `orquestra_ai/rag_memory.py`
@@ -56,25 +56,43 @@ Providers suportados:
 - `orquestra_ai/memory_candidates.py`
 
 ### Planner e workflow
+
+Arquivos:
+
 - `orquestra_ai/planner.py`
 - `orquestra_ai/workflow_engine.py`
 - `orquestra_ai/operations.py`
 
 ### OSINT
+
+Arquivo:
+
 - `orquestra_ai/osint.py`
 
 ### Workspace
+
+Arquivo:
+
 - `orquestra_ai/workspace.py`
 
 ### Frontend e desktop
+
+Arquivos:
+
 - `orquestra_web/src/App.tsx`
 - `orquestra_web/src/api.ts`
 - `orquestra_web/src-tauri/`
 
-O frontend agora tambem incorpora o bloco `Remote Train Plane` dentro do `Execution Center` e a area dedicada `OSINT Lab`.
+### Train Plane remoto
 
-## Superficies da interface
-As areas de produto usadas hoje pelo shell web/desktop sao:
+Arquivos:
+
+- `orquestra_trainplane/app.py`
+- `orquestra_trainplane/worker.py`
+- `orquestra_trainplane/models.py`
+- `orquestra_trainplane/services.py`
+
+## Superficies oficiais de produto
 
 1. `Operations Dashboard`
 2. `Process Center`
@@ -85,8 +103,10 @@ As areas de produto usadas hoje pelo shell web/desktop sao:
 7. `Workspace Browser`
 8. `Projects`
 
-## Modelo operacional da sessao
+## Modelo operacional de sessao
+
 Cada sessao combina:
+
 - `ChatSession`
 - `ChatMessage`
 - `SessionTranscript`
@@ -96,7 +116,9 @@ Cada sessao combina:
 - `SessionTask`
 
 ### Perfil da sessao
+
 O perfil fica em `ChatSession.metadata_json` e inclui:
+
 - `objective`
 - `preset`
 - `memory_policy`
@@ -104,6 +126,7 @@ O perfil fica em `ChatSession.metadata_json` e inclui:
 - `persona_config`
 
 ### Presets
+
 - `research`
 - `osint`
 - `persona`
@@ -111,18 +134,29 @@ O perfil fica em `ChatSession.metadata_json` e inclui:
 - `dataset`
 
 ## Semantica real das flags publicas
-Os contratos publicos de `POST /api/chat/stream` e `POST /api/rag/query` ja tem semantica operacional efetiva:
 
-- `planner_enabled`: controla o uso do planner no contexto e na reconstrução operacional
-- `memory_selector_mode`: aceita `hybrid` e `lexical`
-- `include_workspace`: controla a secao `Workspace/fontes`
-- `include_sources`: controla a secao `RAG legado`
-- `include_osint_evidence`: controla a secao `OSINT evidence`
-- `compaction_enabled`: liga/desliga snapshot compacto
-- `task_context_enabled`: controla uso do contexto de tarefas
-- `context_budget`: limita o contexto agregado
+Os contratos de `POST /api/chat/stream` e `POST /api/rag/query` ja tem semantica operacional real:
 
-### Ordem fixa do contexto
+- `planner_enabled`
+- `memory_selector_mode`
+- `include_workspace`
+- `include_sources`
+- `include_osint_evidence`
+- `compaction_enabled`
+- `task_context_enabled`
+- `context_budget`
+
+No `chat/stream`, tambem existem:
+
+- `osint_mode`
+- `fresh_web_enabled`
+- `evidence_enabled`
+- `source_registry_ids`
+- `enabled_connector_ids`
+- `via_tor`
+
+## Ordem fixa de contexto
+
 1. perfil da sessao
 2. snapshot compacto
 3. planner
@@ -133,82 +167,94 @@ Os contratos publicos de `POST /api/chat/stream` e `POST /api/rag/query` ja tem 
 8. mensagem atual
 
 ## Memoria e RAG
+
 ### Camadas
-- transcript bruto em JSONL
+
+- transcript bruto
 - resumo estruturado
 - estado de compactacao
 - fila de revisao
 - memoria duravel
 - indice vetorial `orquestra_memory_v1`
 - projecao em arquivos `memdir`
-
-### Tipos de memoria
-- `user`
-- `feedback`
-- `project`
-- `reference`
-- `persona`
-- `dataset`
-
-### Escopos relevantes
-- `session_memory`
-- `episodic_memory`
-- `semantic_memory`
-- `workspace_memory`
-- `persona_memory`
-- `source_fact`
-- `training_signal`
+- indice vetorial `orquestra_osint_evidence_v1`
 
 ### Pipeline de aprovacao
+
 Ao aprovar um `MemoryReviewCandidate`, o sistema cria:
+
 1. `MemoryRecord`
 2. projecao em arquivo
 3. indexacao em `orquestra_memory_v1`
 
-Quando a origem vem do `OSINT Lab`, a memoria aprovada preserva `citations`, `source_url`, `claim_id`, `capture_id` e `evidence_ids`.
+Quando a origem vem do `OSINT Lab`, a memoria tambem preserva:
+
+- `citations`
+- `source_url`
+- `claim_id`
+- `capture_id`
+- `evidence_ids`
+- `validation_status`
 
 ## OSINT Lab
+
 ### Entidades
+
+- `OsintConnectorConfig`
+- `OsintSourceRegistryEntry`
 - `OsintInvestigation`
 - `OsintRun`
 - `OsintSource`
 - `OsintCapture`
 - `OsintEvidence`
 - `OsintClaim`
+- `OsintEntity`
 
 ### Fluxo
+
 1. criar investigacao
-2. selecionar conectores ativos
+2. selecionar conectores
 3. planejar queries
 4. buscar fontes
 5. fazer fetch
 6. aprovar evidencias
 7. aprovar claims
-8. promover memoria ou exportar dataset
+8. promover memoria ou exportar bundle
 
-### Politica de resiliencia
-- falha de embedding nao quebra chat
-- falha do backend vetorial nao quebra recall
-- fallback lexical continua disponivel
+### Conectores administraveis
+
+O control plane permite:
+
+- ligar/desligar globalmente
+- ligar/desligar por investigacao
+- acompanhar `credential_status`
+- acompanhar `health_status`
+- aplicar `retention_policy`
 
 ## Planner hibrido
+
 ### Entidades
+
 - `PlannerSnapshot`
 - `SessionTask`
 
 ### Recursos
+
 - `next_steps` reais
 - estrategia e riscos
 - tarefas persistidas
-- dependencias por `blocked_by` e `blocks`
-- visibilidade na UI lateral do chat
+- dependencias `blocked_by` e `blocks`
+- visibilidade lateral no chat
 
 ## Executor local multi-step
+
 ### Entidades
+
 - `WorkflowRun`
 - `WorkflowStepRun`
 
 ### Passos suportados
+
 - `ops_action`
 - `rag_query`
 - `workspace_query`
@@ -216,24 +262,28 @@ Quando a origem vem do `OSINT Lab`, a memoria aprovada preserva `citations`, `so
 - `memory_review_batch`
 - `shell_safe`
 
-### Garantias operacionais
+### Garantias
+
 - progresso por passo
 - cancelamento
 - logs persistidos
 - `output_path`
 - `output_preview`
 - saida parcial em falha
-- recuperacao apos restart
+- recovery apos restart
 - vinculo com sessao e tarefa
 
 ## Workspace multimodal
+
 ### Politica
+
 - inventario primeiro
-- extracao pesada depois
-- ranking por metadado + conteudo quando aplicavel
+- extracao depois
+- ranking por metadado e conteudo
 - degradacao lexical quando vetor falha
 
 ### Tipos de ativo
+
 - `code_text`
 - `image`
 - `pdf`
@@ -242,23 +292,31 @@ Quando a origem vem do `OSINT Lab`, a memoria aprovada preserva `citations`, `so
 - `video`
 - `binary`
 
-## Runtime e distribuicao
-### Enderecos locais
-- API: `http://127.0.0.1:8808`
-- Web: `http://127.0.0.1:4177`
+## Remote Train Plane
 
-### Artefatos macOS
-- `Orquestra AI.app`
-- `Orquestra AI_0.2.0_aarch64.dmg`
+O Orquestra local atua como cliente completo do servico remoto.
 
-### Instalacao
-- `scripts/install_orquestra_macos.sh`
-- `scripts/uninstall_orquestra_macos.sh`
-- LaunchAgent `ai.orquestra.api`
-- runtime em `~/Library/Application Support/Orquestra/runtime`
+### Fluxo suportado
+
+1. configurar endpoint e credenciais
+2. testar conexao
+3. sincronizar `base models`
+4. sincronizar `dataset bundles`
+5. criar `training runs`
+6. acompanhar eventos e metrics
+7. revisar `artifacts`, `evaluations` e `comparisons`
+8. promover artefatos
+
+### Status atual
+
+- a superficie operacional e os contratos ja existem
+- o modo atual ainda e de validacao/operacao local-remota controlada
+- a fase AWS real continua para a proxima etapa
 
 ## API publica agrupada por dominio
+
 ### Saude e operacao
+
 - `GET /api/health`
 - `GET /api/ops/dashboard`
 - `GET /api/ops/actions`
@@ -267,98 +325,70 @@ Quando a origem vem do `OSINT Lab`, a memoria aprovada preserva `citations`, `so
 - `POST /api/ops/runs`
 
 ### Workflows
+
 - `GET /api/workflows/runs`
 - `GET /api/workflows/runs/{run_id}`
 - `POST /api/workflows/runs`
 - `POST /api/workflows/runs/{run_id}/cancel`
 
-### Train Plane remoto via Orquestra local
-- `GET /api/remote/trainplane/config`
-- `PUT /api/remote/trainplane/config`
-- `POST /api/remote/trainplane/test-connection`
-- `GET /api/remote/trainplane/base-models`
-- `POST /api/remote/trainplane/sync/base-model`
-- `GET /api/remote/trainplane/dataset-bundles`
-- `POST /api/remote/trainplane/sync/dataset-bundle`
-- `GET /api/remote/trainplane/runs`
-- `POST /api/remote/trainplane/runs`
-- `GET /api/remote/trainplane/runs/{run_id}`
-- `POST /api/remote/trainplane/runs/{run_id}/cancel`
-- `GET /api/remote/trainplane/runs/{run_id}/stream`
-- `GET /api/remote/trainplane/artifacts`
-- `POST /api/remote/trainplane/artifacts/{artifact_id}/merge`
-- `POST /api/remote/trainplane/artifacts/{artifact_id}/promote`
-- `GET /api/remote/trainplane/evaluations`
-- `POST /api/remote/trainplane/evaluations`
-- `GET /api/remote/trainplane/comparisons`
-- `POST /api/remote/trainplane/comparisons`
+### Sessoes, planner e tarefas
 
-### API publica do servico remoto `orquestra_trainplane`
-- `POST /api/auth/bootstrap`
-- `POST /api/auth/login`
-- `POST /api/base-models/upload/init`
-- `POST /api/base-models/upload/complete`
-- `GET /api/base-models`
-- `POST /api/dataset-bundles`
-- `GET /api/dataset-bundles`
-- `POST /api/training-runs`
-- `GET /api/training-runs`
-- `GET /api/training-runs/{run_id}`
-- `POST /api/training-runs/{run_id}/cancel`
-- `GET /api/training-runs/{run_id}/events`
-- `GET /api/artifacts`
-- `POST /api/artifacts/{artifact_id}/merge`
-- `POST /api/artifacts/{artifact_id}/promote`
-- `POST /api/evaluation-runs`
-- `GET /api/evaluation-runs`
-- `GET /api/evaluation-runs/{run_id}`
-- `POST /api/comparison-runs`
-- `GET /api/comparison-runs`
-- `GET /api/comparison-runs/{run_id}`
-
-### Providers, modelos e projetos
-- `GET /api/providers`
-- `PUT /api/providers`
-- `GET /api/models`
-- `GET /api/connectors`
-- `GET /api/projects`
-- `POST /api/projects`
-- `POST /api/projects/{project_id}/deployments`
-
-### Chat e sessao
 - `POST /api/chat/sessions`
 - `GET /api/chat/sessions`
-- `GET /api/chat/sessions/{session_id}/profile`
-- `PUT /api/chat/sessions/{session_id}/profile`
-- `GET /api/chat/sessions/{session_id}/messages`
-- `POST /api/chat/sessions/{session_id}/resume`
-- `GET /api/chat/sessions/{session_id}/transcript`
-- `GET /api/chat/sessions/{session_id}/summary`
-- `POST /api/chat/sessions/{session_id}/compact`
-- `GET /api/chat/sessions/{session_id}/planner`
-- `POST /api/chat/sessions/{session_id}/planner/rebuild`
-- `GET /api/chat/sessions/{session_id}/tasks`
-- `POST /api/chat/sessions/{session_id}/tasks`
-- `PATCH /api/chat/sessions/{session_id}/tasks`
+- `GET /api/chat/sessions/{id}/profile`
+- `PUT /api/chat/sessions/{id}/profile`
+- `GET /api/chat/sessions/{id}/summary`
+- `POST /api/chat/sessions/{id}/compact`
+- `GET /api/chat/sessions/{id}/planner`
+- `POST /api/chat/sessions/{id}/planner/rebuild`
+- `GET/POST /api/chat/sessions/{id}/tasks`
+- `PATCH /api/chat/sessions/{id}/tasks`
 - `GET /api/tasks/{task_id}`
 - `POST /api/chat/stream`
 
 ### Memoria
+
 - `GET /api/memory`
 - `POST /api/memory/upsert`
 - `GET /api/memory/topics`
 - `POST /api/memory/recall`
 - `POST /api/memory/promote`
 - `GET /api/memory/candidates`
-- `POST /api/memory/candidates/{candidate_id}/approve`
-- `POST /api/memory/candidates/{candidate_id}/reject`
+- `POST /api/memory/candidates/{id}/approve`
+- `POST /api/memory/candidates/{id}/reject`
 - `GET /api/memory/training-candidates`
 - `POST /api/memory/training-candidates`
 
 ### RAG
+
 - `POST /api/rag/query`
 
+### OSINT
+
+- `GET/PUT /api/osint/config`
+- `GET /api/osint/providers`
+- `GET /api/osint/connectors`
+- `PATCH /api/osint/connectors/{id}`
+- `POST /api/osint/connectors/{id}/enable`
+- `POST /api/osint/connectors/{id}/disable`
+- `GET /api/osint/source-registry`
+- `POST /api/osint/source-registry`
+- `PATCH /api/osint/source-registry/{id}`
+- `GET/POST /api/osint/investigations`
+- `PATCH /api/osint/investigations/{id}`
+- `POST /api/osint/investigations/{id}/plan`
+- `POST /api/osint/investigations/{id}/search`
+- `POST /api/osint/investigations/{id}/fetch`
+- `POST /api/osint/investigations/{id}/crawl`
+- `GET /api/osint/investigations/{id}/runs`
+- `GET /api/osint/evidence`
+- `POST /api/osint/evidence/{id}/approve`
+- `GET /api/osint/claims`
+- `POST /api/osint/claims/{id}/approve`
+- `POST /api/osint/export/dataset-bundle`
+
 ### Workspace
+
 - `GET /api/workspace/scans`
 - `POST /api/workspace/attach-directory`
 - `GET /api/workspace/scans/{scan_id}`
@@ -369,30 +399,34 @@ Quando a origem vem do `OSINT Lab`, a memoria aprovada preserva `citations`, `so
 - `POST /api/workspace/assets/{asset_id}/open`
 - `POST /api/workspace/assets/{asset_id}/memorize`
 
-### Jobs e registry
-- `GET /api/training/jobs`
-- `POST /api/training/jobs`
-- `GET /api/remote/jobs`
-- `POST /api/remote/jobs`
-- `GET /api/remote/jobs/{job_id}/logs`
-- `GET /api/registry/models`
-- `POST /api/registry/models`
-- `POST /api/registry/compare`
+### Remote Train Plane via proxy local
 
-## Checkpoint e retomada
-O repositório usa um handoff versionado:
-- arquivo canonico: `.codex/memory/orquestra-continuity.md`
-- espelho humano: `docs/continuity/orquestra-current.md`
+- `GET/PUT /api/remote/trainplane/config`
+- `POST /api/remote/trainplane/test-connection`
+- `GET /api/remote/trainplane/base-models`
+- `POST /api/remote/trainplane/sync/base-model`
+- `GET /api/remote/trainplane/dataset-bundles`
+- `POST /api/remote/trainplane/sync/dataset-bundle`
+- `GET/POST /api/remote/trainplane/runs`
+- `GET /api/remote/trainplane/runs/{id}`
+- `POST /api/remote/trainplane/runs/{id}/cancel`
+- `GET /api/remote/trainplane/runs/{id}/stream`
+- `GET /api/remote/trainplane/artifacts`
+- `POST /api/remote/trainplane/artifacts/{id}/merge`
+- `POST /api/remote/trainplane/artifacts/{id}/promote`
+- `GET/POST /api/remote/trainplane/evaluations`
+- `GET/POST /api/remote/trainplane/comparisons`
 
-Fluxo por etapa:
-1. atualizar handoff
-2. validar a etapa
-3. rodar `git diff --check`
-4. registrar `git status --short`
-5. commit
-6. push
+## Runtime e distribuicao
 
-## Limites atuais
-- conectores remotos ainda nao executam treino real
-- EC2 continua fora desta fase
-- distribuicao publica notarizada ainda nao esta fechada
+### Enderecos locais
+
+- API: `http://127.0.0.1:8808`
+- Web: `http://127.0.0.1:4177`
+
+### Instalacao
+
+- `scripts/install_orquestra_macos.sh`
+- `scripts/uninstall_orquestra_macos.sh`
+- LaunchAgent `ai.orquestra.api`
+- runtime em `~/Library/Application Support/Orquestra/runtime`

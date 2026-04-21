@@ -60,6 +60,11 @@ O ciclo atual em `main` agora inclui, alem da paridade alta anterior:
   - evidencias e claims rastreáveis
   - promocao para memoria com proveniencia preservada
   - uso de evidencias no `Assistant Workspace` e no `rag/query`
+- documentacao reestruturada com:
+  - guia de documentacao
+  - manual operacional reescrito
+  - guia dedicado do `OSINT Lab`
+  - guia dedicado do `Remote Train Plane`
 - desktop macOS com instalador/desinstalador
 - README e docs reescritos para a superficie atual do produto
 - `Train Plane` remoto dedicado com:

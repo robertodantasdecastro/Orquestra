@@ -1,66 +1,169 @@
 # Instalacao e Validacao no macOS
 
 ## Objetivo
-Este guia cobre o fluxo oficial para colocar o Orquestra em funcionamento no macOS e validar que:
 
-- a API local responde
-- a UI web builda
-- o shell desktop Tauri passa em `cargo check`
-- o pacote `.app`/`.dmg` pode ser validado localmente
-- memoria, planner, workflow, workspace e RAG passam em smoke automatizado
+Este guia cobre o fluxo oficial para:
 
-Para uso diario, consulte tambem [docs/02-manual-operacional.md](./02-manual-operacional.md).
+- preparar o ambiente local
+- subir API, web, desktop e Train Plane
+- instalar o Orquestra como app macOS
+- validar backend, frontend, desktop e smoke operacional
+- habilitar providers reais quando desejado
+
+Para operacao do produto no dia a dia, consulte [docs/02-manual-operacional.md](./02-manual-operacional.md).
 
 ## Pre-requisitos
+
+Obrigatorios:
+
 - macOS
 - `python3.12` preferencialmente
 - `node` + `npm`
 - `rustup` + `cargo`
-- opcionais:
-  - `LM Studio`
-  - `ffmpeg`
-  - `ffprobe`
-  - `whisper`
 
-## Bootstrap
+Opcionais, conforme o caso:
+
+- `LM Studio`
+- `ffmpeg`
+- `ffprobe`
+- `whisper`
+- proxy Tor local para fetch `via_tor`
+
+## Bootstrap do repositorio
+
 ```bash
 cd /caminho/para/Orquestra
 ./scripts/bootstrap_orquestra.sh
 ```
 
 O bootstrap:
+
 - cria `.venv` quando necessario
 - instala dependencias Python
 - instala dependencias do frontend
 - inicializa `.env` a partir de `.env.example` quando ainda nao existir
 
 ## Modos de execucao
-### API
+
+### API local
+
 ```bash
 ./scripts/start_orquestra_api.sh
 ```
 
+Endereco padrao:
+
+```text
+http://127.0.0.1:8808
+```
+
 ### Web
+
 ```bash
 ./scripts/start_orquestra_web.sh
 ```
 
-### Stack local
+Endereco padrao:
+
+```text
+http://127.0.0.1:4177
+```
+
+### Stack local completa
+
 ```bash
 ./scripts/start_orquestra_stack.sh
 ```
 
 ### Desktop
+
 ```bash
 ./scripts/start_orquestra_desktop.sh
 ```
 
-### Build e verificacao do desktop
+### Train Plane local/simulado
+
+```bash
+./scripts/start_orquestra_trainplane.sh
+```
+
+## Validacao oficial do repositório
+
+```bash
+./scripts/validate_orquestra.sh
+```
+
+Essa e a porta oficial de validacao. Ela cobre:
+
+- `python -m py_compile`
+- `pytest -q`
+- `bash -n` nos scripts shell
+- `vitest`
+- `tsc -b`
+- `vite build`
+- `cargo check`
+- `validate_orquestra_macos_package.sh` quando `.app` e `.dmg` estao disponiveis
+- smoke da API para sessao, memoria, planner, workflow, workspace, RAG, OSINT e Train Plane local
+
+Observacoes:
+
+- por padrao, a validacao nao gasta credito em providers reais
+- o smoke principal continua funcional em modo local/mock
+
+## Smoke real opcional de providers
+
+Checklist rapido:
+
+```bash
+./scripts/check_orquestra_providers.sh
+```
+
+Validacao estrita de um provider:
+
+```bash
+./scripts/check_orquestra_providers.sh --strict --require lmstudio
+./scripts/check_orquestra_providers.sh --strict --require openai
+```
+
+Smoke real fim a fim:
+
+```bash
+./scripts/validate_orquestra.sh --real-provider lmstudio
+ORQUESTRA_VALIDATE_REAL_PROVIDERS=openai ./scripts/validate_orquestra.sh
+./scripts/validate_orquestra_real_provider_smoke.sh --provider openai
+```
+
+Variaveis comuns:
+
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `DEEPSEEK_API_KEY`
+- `ORQUESTRA_LITELLM_PROXY_URL`
+- `LMSTUDIO_API_BASE=http://localhost:1234/v1`
+- `BRAVE_SEARCH_API_KEY`
+- `TAVILY_API_KEY`
+- `EXA_API_KEY`
+- `SHODAN_API_KEY`
+- `YOUTUBE_API_KEY`
+- `ORQUESTRA_OSINT_TOR_PROXY_URL=socks5h://127.0.0.1:9050`
+
+## Build e verificacao do desktop
+
+Build:
+
+```bash
+cd orquestra_web
+npm run desktop:build
+```
+
+Verificacao com helper:
+
 ```bash
 ./script/build_and_run.sh --verify
 ```
 
 Modos uteis:
+
 ```bash
 ./script/build_and_run.sh
 ./script/build_and_run.sh --skip-build
@@ -70,80 +173,29 @@ Modos uteis:
 ./script/build_and_run.sh --debug
 ```
 
-## Validacao automatizada principal
-```bash
-./scripts/validate_orquestra.sh
-```
+Artefatos esperados:
 
-Para incluir smoke real opcional de provider:
-```bash
-./scripts/validate_orquestra.sh --real-provider lmstudio
-ORQUESTRA_VALIDATE_REAL_PROVIDERS=openai ./scripts/validate_orquestra.sh
-```
-
-Essa validacao executa:
-- `python -m py_compile` no backend, RAG e utilitarios locais
-- `pytest -q`
-- `bash -n` nos scripts shell
-- `vitest`
-- `tsc -b`
-- `vite build`
-- `cargo check`
-- `validate_orquestra_macos_package.sh` quando `.app` e `.dmg` estao disponiveis
-- smoke da API cobrindo:
-  - criacao de sessao com objetivo e preset
-  - perfil de sessao
-  - `Memory Inbox` e aprovacao de candidato
-  - recall associado ao RAG
-  - compactacao manual
-  - planner e tarefas
-  - workflow local multi-step
-  - resume e transcript
-  - scan de workspace, preview, extracao e memorize
-  - smoke real opcional por provider quando solicitado
-
-Observacoes:
-- o smoke usa `mock_response` para nao depender de provider remoto real
-- o smoke real so roda quando o operador pedir explicitamente
-- esse comando e a porta oficial de validacao do repositório
-
-## Build do desktop e pacote macOS
-Build do desktop:
-```bash
-cd orquestra_web
-npm run desktop:build
-```
-
-Saidas atuais:
 - `orquestra_web/src-tauri/target/release/bundle/macos/Orquestra AI.app`
 - `orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI_0.2.0_aarch64.dmg`
 
 Validacao do pacote:
+
 ```bash
 ./scripts/validate_orquestra_macos_package.sh
 ```
 
-Essa validacao confere:
-- existencia do `.app`
-- `Contents/Info.plist`
-- executavel `orquestra-desktop`
-- DMG gerado
-- sintaxe dos scripts de instalacao/desinstalacao
-- assinatura local `ad-hoc`
+## Instalacao do app no macOS
 
-Observacao:
-- a build atual e adequada para uso local
-- ela ainda nao e notarizada para distribuicao publica
+Instalacao padrao:
 
-## Instalacao do usuario no macOS
-Instalar:
 ```bash
 ./scripts/install_orquestra_macos.sh
 ```
 
 O instalador:
+
 - valida o ambiente
-- gera o bundle do app quando necessario
+- gera o bundle quando necessario
 - copia `Orquestra AI.app` para `~/Applications`
 - sincroniza runtime para `~/Library/Application Support/Orquestra/runtime`
 - cria backup do banco antes do upgrade quando aplicavel
@@ -151,6 +203,7 @@ O instalador:
 - registra o LaunchAgent `ai.orquestra.api`
 
 Opcoes uteis:
+
 ```bash
 ./scripts/install_orquestra_macos.sh --skip-build
 ./scripts/install_orquestra_macos.sh --no-launch-agent
@@ -162,106 +215,103 @@ Opcoes uteis:
 ```
 
 Variaveis de apoio:
+
 ```bash
 ORQUESTRA_INSTALL_API_WAIT_SECONDS=120 ./scripts/install_orquestra_macos.sh --skip-build
 ORQUESTRA_INSTALL_BACKUP_LIMIT=8 ./scripts/install_orquestra_macos.sh --skip-build
 ```
 
 ## Desinstalacao
+
 Padrao:
+
 ```bash
 ./scripts/uninstall_orquestra_macos.sh
 ```
 
 Opcoes:
+
 ```bash
 ./scripts/uninstall_orquestra_macos.sh --purge-data
 ./scripts/uninstall_orquestra_macos.sh --no-launch-agent
 ```
 
 Por padrao o desinstalador:
+
 - remove o app
 - remove o LaunchAgent, salvo se `--no-launch-agent` for usado
 - preserva dados e logs do usuario
 
-## Enderecos e caminhos
+## Caminhos e artefatos locais
+
 - API: `http://127.0.0.1:8808`
 - Web: `http://127.0.0.1:4177`
 - App instalado: `~/Applications/Orquestra AI.app`
-- Runtime: `~/Library/Application Support/Orquestra/runtime`
+- Runtime instalado: `~/Library/Application Support/Orquestra/runtime`
 - Logs: `~/Library/Logs/Orquestra`
 - Manifesto: `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/install_manifest.json`
 - Backups: `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/backups`
 
-## Providers reais
-O fluxo de validacao oficial pode permanecer totalmente local/mock.
+## Procedimento recomendado para primeira subida
 
-Quando quiser habilitar providers reais:
-- configure `.env` local
-- use `LM Studio` para o provider local
-- mantenha chaves remotas fora do Git
-
-Checklist rapido:
-```bash
-./scripts/check_orquestra_providers.sh
-```
-
-Exemplos de gate estrito:
-```bash
-./scripts/check_orquestra_providers.sh --strict --require lmstudio
-./scripts/check_orquestra_providers.sh --strict --require openai
-```
-
-Smoke real fim a fim:
-```bash
-./scripts/validate_orquestra_real_provider_smoke.sh --provider lmstudio
-./scripts/validate_orquestra_real_provider_smoke.sh --provider openai
-```
-
-Entradas comuns:
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `DEEPSEEK_API_KEY`
-- `ORQUESTRA_LITELLM_PROXY_URL`
-- `LMSTUDIO_API_BASE=http://localhost:1234/v1`
+1. Rode `./scripts/bootstrap_orquestra.sh`.
+2. Rode `./scripts/validate_orquestra.sh`.
+3. Suba `./scripts/start_orquestra_stack.sh`.
+4. Abra `http://127.0.0.1:4177` ou o desktop.
+5. Crie um projeto e uma sessao.
+6. Se for usar busca web, configure as chaves dos conectores desejados.
+7. Se for usar baseline local, ligue o `LM Studio`.
+8. Se for testar `.onion`, suba o proxy Tor local antes.
 
 ## Troubleshooting rapido
+
 ### API nao responde
+
 ```bash
 curl -fsS http://127.0.0.1:8808/api/health
 ```
 
 Se instalado:
+
 ```bash
 launchctl print gui/$UID/ai.orquestra.api
 tail -n 100 ~/Library/Logs/Orquestra/api.stderr.log
 ```
 
 ### Web nao sobe
+
 ```bash
 ./scripts/start_orquestra_web.sh
 ```
 
-Depois:
-```text
-http://127.0.0.1:4177
-```
-
 ### Provider local offline
+
 ```bash
 curl -fsS http://localhost:1234/v1/models
 ```
 
+### OSINT sem resultados
+
+Verifique:
+
+- se o conector esta `enabled`
+- se o conector esta `ready`
+- se a credencial esperada esta no ambiente
+- se a investigacao habilitou o conector correto
+- se o `Source Registry` tem seeds compatíveis para fallback
+
+### Fetch `via_tor` falhou
+
+Verifique:
+
+- se o proxy local realmente responde em `ORQUESTRA_OSINT_TOR_PROXY_URL`
+- se o conector permite `via_tor`
+- se a investigacao foi executada com `via_tor=true`
+
 ### Build desktop falhou
+
 Revise:
+
 - `orquestra_web/src-tauri/target`
 - `cargo check`
 - `./scripts/validate_orquestra.sh`
-
-## Estado atual desta fase
-- o fluxo local esta fechado para backend, web e desktop
-- o instalador e o desinstalador ja fazem parte do produto
-- a validacao principal cobre memoria, compactacao, planner e workflow
-- o runtime segue local-first e nao depende do repositorio antigo `Local_RAG`
-- conectores remotos continuam como catalogo/intencao, com EC2 adiado para proxima fase
-- providers reais ja podem ser validados por smoke opcional sem contaminar a validacao padrao
