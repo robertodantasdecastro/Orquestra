@@ -114,6 +114,12 @@ Instalacao com preenchimento guiado do `.env`:
 - `--no-tty`: evita fluxos interativos para execucao controlada por app
 - `--no-secrets-output`: reforca que nenhum segredo deve aparecer em stdout/log
 
+Ao final da instalacao completa, o Orquestra publica no `~/Applications` do usuario:
+
+- `Orquestra AI.app`
+- `Orquestra.app` como atalho/launcher
+- `Orquestra Uninstaller.app`
+
 ## Contratos para o instalador grafico
 
 Gerar plano de instalacao sem alterar o sistema:

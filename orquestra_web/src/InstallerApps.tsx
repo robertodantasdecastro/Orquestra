@@ -66,6 +66,8 @@ const mockInstallPlan: InstallPlan = {
   platform: { system: "Darwin", machine: "arm64", release: "local-preview" },
   paths: {
     installed_app: "~/Applications/Orquestra AI.app",
+    installed_app_shortcut: "~/Applications/Orquestra.app",
+    installed_uninstaller: "~/Applications/Orquestra Uninstaller.app",
     runtime: "~/Library/Application Support/Orquestra/runtime",
     runtime_config: "~/Library/Application Support/Orquestra/runtime/config/runtime.json"
   },
@@ -371,6 +373,8 @@ export function InstallerApp() {
               <span><strong>Runtime:</strong> {plan?.paths.runtime}</span>
               <span><strong>runtime.json:</strong> {plan?.paths.runtime_config}</span>
               <span><strong>App:</strong> {plan?.paths.installed_app}</span>
+              <span><strong>Launcher:</strong> {plan?.paths.installed_app_shortcut}</span>
+              <span><strong>Desinstalador:</strong> {plan?.paths.installed_uninstaller}</span>
             </div>
           </div>
           <div>

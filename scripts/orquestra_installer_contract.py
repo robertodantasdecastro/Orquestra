@@ -54,9 +54,12 @@ def installed_paths(root: Path) -> dict[str, str]:
     runtime = runtime_dir()
     return {
         "app_bundle": str(root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra AI.app"),
+        "uninstaller_bundle": str(root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra Uninstaller.app"),
         "dmg": str(root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "dmg" / f"Orquestra AI_{version}_aarch64.dmg"),
         "graphical_dmg": str(root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "dmg" / f"Orquestra AI Installer_{version}_aarch64.dmg"),
         "installed_app": str(Path.home() / "Applications" / "Orquestra AI.app"),
+        "installed_app_shortcut": str(Path.home() / "Applications" / "Orquestra.app"),
+        "installed_uninstaller": str(Path.home() / "Applications" / "Orquestra Uninstaller.app"),
         "runtime": str(runtime),
         "runtime_config": str(runtime / "config" / "runtime.json"),
         "database": str(runtime / "experiments" / "orquestra" / "orquestra_v2.db"),
@@ -121,7 +124,7 @@ def build_install_plan() -> dict[str, Any]:
             {"id": "preflight", "label": "Diagnosticar macOS e dependências"},
             {"id": "dependencies", "label": "Instalar dependências obrigatórias autorizadas"},
             {"id": "runtime", "label": "Criar runtime.json e diretórios de dados"},
-            {"id": "app", "label": "Instalar Orquestra AI.app"},
+            {"id": "app", "label": "Instalar Orquestra AI.app, launcher e desinstalador"},
             {"id": "launch_agent", "label": "Registrar LaunchAgent da API"},
             {"id": "validate", "label": "Validar API, web, app e providers"},
         ],
@@ -133,6 +136,8 @@ def build_uninstall_plan(mode: str = "safe") -> dict[str, Any]:
     paths = installed_paths(root)
     item_order = [
         ("app", "App instalado", paths["installed_app"], True),
+        ("app_shortcut", "Atalho Orquestra.app", paths["installed_app_shortcut"], True),
+        ("uninstaller_app", "Orquestra Uninstaller.app", paths["installed_uninstaller"], True),
         ("launch_agent", "LaunchAgent da API", paths["launch_agent"], True),
         ("runtime_all", "Runtime completo", paths["runtime"], mode != "preserve-deps"),
         ("logs", "Logs", paths["logs"], True),
@@ -185,7 +190,7 @@ def build_check_report() -> dict[str, Any]:
         "artifacts": {
             key: file_status(Path(value))
             for key, value in paths.items()
-            if key in {"app_bundle", "dmg", "graphical_dmg", "installed_app", "runtime_config", "database"}
+            if key in {"app_bundle", "uninstaller_bundle", "dmg", "graphical_dmg", "installed_app", "installed_app_shortcut", "installed_uninstaller", "runtime_config", "database"}
         },
         "runtime": {
             "runtime_dir": paths["runtime"],

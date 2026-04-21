@@ -239,6 +239,11 @@ Esse DMG contem:
 - `README Instalação.txt`
 
 No wizard grafico, o clique em `Instalar agora` abre um dialogo de execucao com barra de progresso, etapas e log detalhado do processo.
+Ao concluir a instalacao, o fluxo publica em `~/Applications`:
+
+- `Orquestra AI.app`
+- `Orquestra.app` como launcher rapido
+- `Orquestra Uninstaller.app`
 
 Guia completo:
 

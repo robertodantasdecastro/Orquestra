@@ -8,8 +8,13 @@ fi
 
 ROOT_DIR="${ORQUESTRA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 APP_NAME="Orquestra AI.app"
+APP_SHORTCUT_NAME="Orquestra.app"
+UNINSTALLER_NAME="Orquestra Uninstaller.app"
 INSTALL_DIR="${ORQUESTRA_INSTALL_DIR:-$HOME/Applications/$APP_NAME}"
+APP_SHORTCUT_PATH="${ORQUESTRA_APP_SHORTCUT_PATH:-$HOME/Applications/$APP_SHORTCUT_NAME}"
+UNINSTALLER_INSTALL_DIR="${ORQUESTRA_UNINSTALLER_INSTALL_DIR:-$HOME/Applications/$UNINSTALLER_NAME}"
 APP_SOURCE="${ORQUESTRA_APP_SOURCE:-${ROOT_DIR}/orquestra_web/src-tauri/target/release/bundle/macos/${APP_NAME}}"
+UNINSTALLER_SOURCE="${ORQUESTRA_UNINSTALLER_SOURCE:-${ROOT_DIR}/orquestra_web/src-tauri/target/release/bundle/macos/${UNINSTALLER_NAME}}"
 PACKAGE_VERSION="$(/usr/bin/python3 - <<'PY' "${ROOT_DIR}/orquestra_web/package.json"
 import json
 import pathlib
@@ -147,6 +152,7 @@ if [[ "${SKIP_BUILD}" != "true" ]]; then
   (
     cd "${ROOT_DIR}/orquestra_web"
     npm run desktop:build
+    npm run desktop:build:uninstaller
   )
 else
   echo "[orquestra-install] usando bundle existente (--skip-build)"
@@ -154,6 +160,11 @@ fi
 
 if [[ ! -d "${APP_SOURCE}" ]]; then
   echo "[orquestra-install] app bundle ausente: ${APP_SOURCE}" >&2
+  exit 1
+fi
+
+if [[ ! -d "${UNINSTALLER_SOURCE}" ]]; then
+  echo "[orquestra-install] desinstalador gráfico ausente: ${UNINSTALLER_SOURCE}" >&2
   exit 1
 fi
 
@@ -166,10 +177,20 @@ echo "[orquestra-install] instalando app em ${INSTALL_DIR}"
 rm -rf "${INSTALL_DIR}"
 ditto "${APP_SOURCE}" "${INSTALL_DIR}"
 
+echo "[orquestra-install] instalando desinstalador em ${UNINSTALLER_INSTALL_DIR}"
+rm -rf "${UNINSTALLER_INSTALL_DIR}"
+ditto "${UNINSTALLER_SOURCE}" "${UNINSTALLER_INSTALL_DIR}"
+
+echo "[orquestra-install] criando atalho de abertura em ${APP_SHORTCUT_PATH}"
+rm -rf "${APP_SHORTCUT_PATH}"
+ln -s "${INSTALL_DIR}" "${APP_SHORTCUT_PATH}"
+
 if [[ "${INSTALL_LAUNCH_AGENT}" != "true" ]]; then
   echo
   echo "[orquestra-install] instalação concluída sem LaunchAgent"
   echo "  app: ${INSTALL_DIR}"
+  echo "  atalho app: ${APP_SHORTCUT_PATH}"
+  echo "  desinstalador: ${UNINSTALLER_INSTALL_DIR}"
   echo "  dados: ${SUPPORT_DIR}"
   echo "  logs: ${LOG_DIR}"
   if [[ "${OPEN_APP}" == "true" ]]; then
@@ -257,6 +278,8 @@ PY
   export ORQUESTRA_INSTALL_APP_VERSION="${PACKAGE_VERSION}"
   export ORQUESTRA_INSTALL_SOURCE_ROOT="${ROOT_DIR}"
   export ORQUESTRA_INSTALL_TARGET_APP="${INSTALL_DIR}"
+  export ORQUESTRA_INSTALL_APP_SHORTCUT="${APP_SHORTCUT_PATH}"
+  export ORQUESTRA_INSTALL_UNINSTALLER_APP="${UNINSTALLER_INSTALL_DIR}"
   export ORQUESTRA_INSTALL_RUNTIME_DIR="${RUNTIME_DIR}"
   export ORQUESTRA_INSTALL_SUPPORT_DIR="${SUPPORT_DIR}"
   export ORQUESTRA_INSTALL_LOG_DIR="${LOG_DIR}"
@@ -287,6 +310,8 @@ payload = {
     "installed_at": datetime.now(timezone.utc).isoformat(),
     "source_root": os.environ["ORQUESTRA_INSTALL_SOURCE_ROOT"],
     "install_dir": os.environ["ORQUESTRA_INSTALL_TARGET_APP"],
+    "app_shortcut": os.environ["ORQUESTRA_INSTALL_APP_SHORTCUT"],
+    "uninstaller_app": os.environ["ORQUESTRA_INSTALL_UNINSTALLER_APP"],
     "runtime_dir": os.environ["ORQUESTRA_INSTALL_RUNTIME_DIR"],
     "support_dir": os.environ["ORQUESTRA_INSTALL_SUPPORT_DIR"],
     "logs_dir": os.environ["ORQUESTRA_INSTALL_LOG_DIR"],
@@ -406,6 +431,8 @@ fi
 echo
 echo "[orquestra-install] instalação concluída"
 echo "  app: ${INSTALL_DIR}"
+echo "  atalho app: ${APP_SHORTCUT_PATH}"
+echo "  desinstalador: ${UNINSTALLER_INSTALL_DIR}"
 echo "  launch agent: ${LAUNCH_AGENT_PLIST}"
 echo "  logs: ${LOG_DIR}"
 echo "  api: ${API_URL}"

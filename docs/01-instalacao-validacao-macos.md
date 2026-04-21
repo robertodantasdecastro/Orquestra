@@ -262,6 +262,8 @@ O instalador:
 - valida o ambiente
 - gera o bundle quando necessario
 - copia `Orquestra AI.app` para `~/Applications`
+- cria o launcher `~/Applications/Orquestra.app`
+- publica `~/Applications/Orquestra Uninstaller.app`
 - sincroniza runtime para `~/Library/Application Support/Orquestra/runtime`
 - cria `~/Library/Application Support/Orquestra/runtime/config/runtime.json`
 - cria backup do banco antes do upgrade quando aplicavel
@@ -332,6 +334,8 @@ Por padrao o desinstalador:
 - API: `http://127.0.0.1:8808`
 - Web: `http://127.0.0.1:4177`
 - App instalado: `~/Applications/Orquestra AI.app`
+- Launcher rapido: `~/Applications/Orquestra.app`
+- Desinstalador grafico: `~/Applications/Orquestra Uninstaller.app`
 - Runtime instalado: `~/Library/Application Support/Orquestra/runtime`
 - Runtime bootstrap: `~/Library/Application Support/Orquestra/runtime/config/runtime.json`
 - Logs: `~/Library/Logs/Orquestra`

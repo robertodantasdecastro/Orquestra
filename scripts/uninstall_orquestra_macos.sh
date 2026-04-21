@@ -9,8 +9,12 @@ fi
 PURGE_DATA="false"
 REMOVE_LAUNCH_AGENT="true"
 APP_NAME="Orquestra AI.app"
+APP_SHORTCUT_NAME="Orquestra.app"
+UNINSTALLER_NAME="Orquestra Uninstaller.app"
 APP_PROCESS_NAME="orquestra-desktop"
 INSTALL_DIR="${ORQUESTRA_INSTALL_DIR:-$HOME/Applications/$APP_NAME}"
+APP_SHORTCUT_PATH="${ORQUESTRA_APP_SHORTCUT_PATH:-$HOME/Applications/$APP_SHORTCUT_NAME}"
+UNINSTALLER_INSTALL_DIR="${ORQUESTRA_UNINSTALLER_INSTALL_DIR:-$HOME/Applications/$UNINSTALLER_NAME}"
 SUPPORT_DIR="${HOME}/Library/Application Support/Orquestra"
 LOG_DIR="${HOME}/Library/Logs/Orquestra"
 LAUNCH_AGENTS_DIR="${HOME}/Library/LaunchAgents"
@@ -75,6 +79,8 @@ pkill -x "${APP_PROCESS_NAME}" >/dev/null 2>&1 || true
 
 echo "[orquestra-uninstall] removendo app instalado"
 rm -rf "${INSTALL_DIR}"
+rm -rf "${APP_SHORTCUT_PATH}"
+rm -rf "${UNINSTALLER_INSTALL_DIR}"
 
 if [[ "${PURGE_DATA}" == "true" ]]; then
   echo "[orquestra-uninstall] removendo dados locais do usuário"
@@ -86,6 +92,8 @@ fi
 echo
 echo "[orquestra-uninstall] desinstalação concluída"
 echo "  app removido: ${INSTALL_DIR}"
+echo "  atalho removido: ${APP_SHORTCUT_PATH}"
+echo "  desinstalador removido: ${UNINSTALLER_INSTALL_DIR}"
 if [[ "${REMOVE_LAUNCH_AGENT}" == "true" ]]; then
   echo "  launch agent removido: ${LAUNCH_AGENT_PLIST}"
 else

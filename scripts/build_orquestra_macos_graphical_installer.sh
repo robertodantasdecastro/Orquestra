@@ -49,6 +49,7 @@ ditto "${APP_MAIN}" "${STAGE_DIR}/Orquestra AI.app"
 ditto "${APP_INSTALLER}" "${STAGE_DIR}/Orquestra Installer.app"
 ditto "${APP_UNINSTALLER}" "${STAGE_DIR}/Orquestra Uninstaller.app"
 ditto "${APP_MAIN}" "${STAGE_DIR}/.payload/orquestra_web/src-tauri/target/release/bundle/macos/Orquestra AI.app"
+ditto "${APP_UNINSTALLER}" "${STAGE_DIR}/.payload/orquestra_web/src-tauri/target/release/bundle/macos/Orquestra Uninstaller.app"
 rsync -a "${ROOT_DIR}/scripts/" "${STAGE_DIR}/.payload/scripts/"
 
 cat > "${STAGE_DIR}/README Instalação.txt" <<README

@@ -12,8 +12,12 @@ PLAN_FILE=""
 EMIT_EVENTS="false"
 
 APP_NAME="Orquestra AI.app"
+APP_SHORTCUT_NAME="Orquestra.app"
+UNINSTALLER_NAME="Orquestra Uninstaller.app"
 APP_PROCESS_NAME="orquestra-desktop"
 INSTALL_DIR="${ORQUESTRA_INSTALL_DIR:-$HOME/Applications/$APP_NAME}"
+APP_SHORTCUT_PATH="${ORQUESTRA_APP_SHORTCUT_PATH:-$HOME/Applications/$APP_SHORTCUT_NAME}"
+UNINSTALLER_INSTALL_DIR="${ORQUESTRA_UNINSTALLER_INSTALL_DIR:-$HOME/Applications/$UNINSTALLER_NAME}"
 SUPPORT_DIR="${HOME}/Library/Application Support/Orquestra"
 RUNTIME_DIR="${SUPPORT_DIR}/runtime"
 LOG_DIR="${HOME}/Library/Logs/Orquestra"
@@ -42,7 +46,7 @@ Opcoes:
   -h, --help                     Mostra esta ajuda.
 
 Ids principais:
-  app,launch_agent,runtime_all,logs,db,memory,rag_indexes,osint,workspace,
+  app,app_shortcut,uninstaller_app,launch_agent,runtime_all,logs,db,memory,rag_indexes,osint,workspace,
   workflows,operations,trainplane,install_backups,runtime_venv
 
 Ids de dependencias globais:
@@ -180,6 +184,8 @@ append_item() {
 item_path() {
   case "$1" in
     app) printf '%s' "${INSTALL_DIR}" ;;
+    app_shortcut) printf '%s' "${APP_SHORTCUT_PATH}" ;;
+    uninstaller_app) printf '%s' "${UNINSTALLER_INSTALL_DIR}" ;;
     launch_agent) printf '%s' "${LAUNCH_AGENT_PLIST}" ;;
     runtime_all) printf '%s' "${RUNTIME_DIR}" ;;
     logs) printf '%s' "${LOG_DIR}" ;;
@@ -200,6 +206,8 @@ item_path() {
 item_label() {
   case "$1" in
     app) printf 'App instalado' ;;
+    app_shortcut) printf 'Atalho Orquestra.app' ;;
+    uninstaller_app) printf 'Orquestra Uninstaller.app' ;;
     launch_agent) printf 'LaunchAgent da API' ;;
     runtime_all) printf 'Runtime completo do Orquestra' ;;
     logs) printf 'Logs do usuario' ;;
@@ -241,13 +249,13 @@ brew_bin() {
 default_selection() {
   case "${MODE}" in
     preserve-deps)
-      printf 'app,launch_agent,runtime_all,logs'
+      printf 'app,app_shortcut,uninstaller_app,launch_agent,runtime_all,logs'
       ;;
     safe)
-      printf 'app,launch_agent,runtime_all,logs'
+      printf 'app,app_shortcut,uninstaller_app,launch_agent,runtime_all,logs'
       ;;
     all)
-      printf 'app,launch_agent,runtime_all,logs,db,memory,rag_indexes,osint,workspace,workflows,operations,trainplane,install_backups,runtime_venv,brew_python,brew_node,brew_rust,brew_uv,brew_ffmpeg,brew_tor,brew_ollama,cask_brave,cask_lmstudio'
+      printf 'app,app_shortcut,uninstaller_app,launch_agent,runtime_all,logs,db,memory,rag_indexes,osint,workspace,workflows,operations,trainplane,install_backups,runtime_venv,brew_python,brew_node,brew_rust,brew_uv,brew_ffmpeg,brew_tor,brew_ollama,cask_brave,cask_lmstudio'
       ;;
   esac
 }
@@ -256,6 +264,8 @@ print_items() {
   cat <<'ITEMS'
 Itens removiveis:
   app              App em ~/Applications
+  app_shortcut     Atalho Orquestra.app em ~/Applications
+  uninstaller_app  Orquestra Uninstaller.app em ~/Applications
   launch_agent     LaunchAgent ai.orquestra.api
   runtime_all      Runtime completo em Application Support
   logs             Logs do usuario
@@ -406,6 +416,8 @@ remove_app() {
   fi
   pkill -x "${APP_PROCESS_NAME}" >/dev/null 2>&1 || true
   rm -rf "${INSTALL_DIR}"
+  rm -rf "${APP_SHORTCUT_PATH}"
+  rm -rf "${UNINSTALLER_INSTALL_DIR}"
   echo "[orquestra-full-uninstall] app removido: ${INSTALL_DIR}"
 }
 
@@ -446,6 +458,8 @@ backup_sensitive_data
 
 if contains_item "launch_agent" "${SELECTED}"; then remove_launch_agent; fi
 if contains_item "app" "${SELECTED}"; then remove_app; fi
+if contains_item "app_shortcut" "${SELECTED}" && ! contains_item "app" "${SELECTED}"; then remove_path "app_shortcut"; fi
+if contains_item "uninstaller_app" "${SELECTED}" && ! contains_item "app" "${SELECTED}"; then remove_path "uninstaller_app"; fi
 
 for item in runtime_all logs db memory rag_indexes osint workspace workflows operations trainplane install_backups runtime_venv; do
   if contains_item "${item}" "${SELECTED}"; then

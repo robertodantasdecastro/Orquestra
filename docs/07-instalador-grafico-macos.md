@@ -153,6 +153,8 @@ O instalador grafico mostra:
    - `.env` apenas como fallback/importacao
 8. Instalacao do app:
    - copia `Orquestra AI.app`
+   - cria `Orquestra.app` em `~/Applications` como launcher rapido
+   - publica `Orquestra Uninstaller.app` em `~/Applications`
    - sincroniza runtime
    - cria `runtime.json`
    - cria manifesto

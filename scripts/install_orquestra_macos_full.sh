@@ -461,6 +461,7 @@ if [[ "${SKIP_BUILD}" != "true" ]]; then
   (
     cd "${ROOT_DIR}/orquestra_web"
     npm run desktop:build
+    npm run desktop:build:uninstaller
   )
 else
   echo "[orquestra-full-install] build pulado (--skip-build)"
@@ -493,6 +494,8 @@ fi
 echo
 echo "[orquestra-full-install] instalacao completa concluida"
 echo "  app: ${HOME}/Applications/Orquestra AI.app"
+echo "  atalho app: ${HOME}/Applications/Orquestra.app"
+echo "  desinstalador: ${HOME}/Applications/Orquestra Uninstaller.app"
 echo "  runtime: ${HOME}/Library/Application Support/Orquestra/runtime"
 echo "  logs: ${HOME}/Library/Logs/Orquestra"
 if [[ ${#OPTIONAL_WARNINGS[@]} -gt 0 ]]; then
