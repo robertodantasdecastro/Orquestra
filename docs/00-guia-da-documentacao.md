@@ -4,6 +4,12 @@
 
 Este arquivo organiza a documentacao oficial do Orquestra e indica qual documento ler em cada situacao.
 
+Logo padrao do projeto:
+
+```text
+assets/brand/orquestra-logo.png
+```
+
 ## Leitura recomendada por perfil
 
 ### Primeiro acesso
@@ -11,18 +17,21 @@ Este arquivo organiza a documentacao oficial do Orquestra e indica qual document
 1. [README.md](../README.md)
 2. [docs/01-instalacao-validacao-macos.md](./01-instalacao-validacao-macos.md)
 3. [docs/05-instalador-completo-macos.md](./05-instalador-completo-macos.md)
-4. [docs/02-manual-operacional.md](./02-manual-operacional.md)
+4. [docs/07-instalador-grafico-macos.md](./07-instalador-grafico-macos.md), se quiser o wizard grafico
+5. [docs/02-manual-operacional.md](./02-manual-operacional.md)
 
 ### Operacao diaria
 
 1. [docs/02-manual-operacional.md](./02-manual-operacional.md)
-2. [docs/03-osint-lab.md](./03-osint-lab.md), se houver investigacao web
-3. [docs/04-train-plane.md](./04-train-plane.md), se houver treino/comparacao
+2. [docs/06-settings-center-storage-fabric-router.md](./06-settings-center-storage-fabric-router.md), se houver ajuste de storage, chaves, modelos ou agentes
+3. [docs/03-osint-lab.md](./03-osint-lab.md), se houver investigacao web
+4. [docs/04-train-plane.md](./04-train-plane.md), se houver treino/comparacao
 
 ### Arquitetura e implementacao
 
 1. [docs/11-orquestra-ai-control-plane.md](./11-orquestra-ai-control-plane.md)
 2. [docs/12-orquestra-v2-memorygraph-workspace.md](./12-orquestra-v2-memorygraph-workspace.md)
+3. [docs/06-settings-center-storage-fabric-router.md](./06-settings-center-storage-fabric-router.md)
 
 ### Retomada apos interrupcao
 
@@ -61,6 +70,18 @@ Este arquivo organiza a documentacao oficial do Orquestra e indica qual document
   - logins, API keys e `.env`
   - desinstalacao seletiva e backup de memorias
 
+- [docs/06-settings-center-storage-fabric-router.md](./06-settings-center-storage-fabric-router.md)
+  - runtime.json
+  - storage multilocal e quotas
+  - Keychain e fallback `.env`
+  - providers, catalogo de modelos, router e agentes
+
+- [docs/07-instalador-grafico-macos.md](./07-instalador-grafico-macos.md)
+  - `Orquestra Installer.app`
+  - `Orquestra Uninstaller.app`
+  - DMG completo do wizard
+  - contratos JSON usados pela UI grafica
+
 - [docs/11-orquestra-ai-control-plane.md](./11-orquestra-ai-control-plane.md)
   - dominios do sistema
   - APIs publicas
@@ -92,7 +113,7 @@ Toda mudanca relevante em:
 - superficie da UI
 - fluxo operacional
 - scripts de bootstrap, install ou validate
-- memoria, RAG, workflow, OSINT ou Train Plane
+- Settings Center, storage, providers, router, memoria, RAG, workflow, OSINT ou Train Plane
 
 deve atualizar pelo menos:
 

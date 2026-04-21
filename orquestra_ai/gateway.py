@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from .models import ProviderProfile
+from .secret_store import SecretStoreService
 
 
 class GatewayLlmError(RuntimeError):
@@ -31,6 +32,7 @@ class GatewayProvider:
     transport: str
     base_url: str | None = None
     api_key_env: str | None = None
+    secret_ref: str | None = None
     default_model: str | None = None
     model_prefix: str | None = None
     enabled: bool = True
@@ -47,6 +49,7 @@ class GatewayProvider:
             transport=record.transport,
             base_url=record.base_url,
             api_key_env=record.api_key_env,
+            secret_ref=record.secret_ref,
             default_model=record.default_model,
             model_prefix=record.model_prefix,
             enabled=record.enabled,
@@ -254,6 +257,10 @@ class OrquestraGateway:
     def _resolve_api_key(self, provider: GatewayProvider) -> str | None:
         if provider.provider_id == "lmstudio":
             return os.getenv(provider.api_key_env or "", "lm-studio") or "lm-studio"
+        if provider.secret_ref:
+            value = SecretStoreService().get_secret(provider.secret_ref)
+            if value:
+                return value
         if provider.api_key_env:
             return os.getenv(provider.api_key_env) or None
         return None

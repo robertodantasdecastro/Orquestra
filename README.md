@@ -1,6 +1,6 @@
 # Orquestra
 
-![Orquestra AI](assets/brand/orquestra-wordmark.svg)
+![Orquestra AI](assets/brand/orquestra-logo.png)
 
 `Orquestra` e um control plane `macOS-first` e `local-first` para operacao de IA. A aplicacao combina chat multi-provider, memoria persistente, RAG contextual, investigacao OSINT, leitura multimodal de diretorios, planner de sessao, workflows locais multi-step e um painel remoto de treino/comparacao de modelos.
 
@@ -10,10 +10,11 @@ Hoje o Orquestra entrega:
 - `Assistant Workspace` com setup de sessao por objetivo, preset e politicas de memoria/RAG.
 - `Memory Studio` com memoria hibrida, inbox de revisao, recall lexical + vetorial e projecao em arquivos.
 - `OSINT Lab` com busca web nativa, conectores administraveis, source registry, evidencias, claims e promocao rastreavel para memoria.
+- `Settings Center` para runtime, storage multilocal, Keychain, providers, modelos, router interno e agentes.
 - `Workspace Browser` com leitura `inventory-first` e extracao multimodal sob demanda.
 - `Execution Center` com workflows, registry, consulta RAG, conectores e o painel `Remote Train Plane`.
 - `Operations Dashboard` e `Process Center` para saude da stack, artefatos, runtime e observabilidade local.
-- app desktop macOS com instalador, desinstalador, runtime espelhado e LaunchAgent local.
+- app desktop macOS com instalador/desinstalador por script, wizard grafico dedicado, runtime espelhado e LaunchAgent local.
 - servico remoto dedicado `orquestra_trainplane` para treino `adapter-first`, artifacts, avaliacoes e comparacoes.
 
 ## Principios operacionais
@@ -33,6 +34,8 @@ Hoje o Orquestra entrega:
 - [docs/03-osint-lab.md](docs/03-osint-lab.md): operacao detalhada do `OSINT Lab`.
 - [docs/04-train-plane.md](docs/04-train-plane.md): uso do `Remote Train Plane` e fluxo de treino/comparacao.
 - [docs/05-instalador-completo-macos.md](docs/05-instalador-completo-macos.md): instalacao do zero, chaves, opcionais e desinstalacao seletiva.
+- [docs/06-settings-center-storage-fabric-router.md](docs/06-settings-center-storage-fabric-router.md): Settings Center, Storage Fabric, Keychain e router interno.
+- [docs/07-instalador-grafico-macos.md](docs/07-instalador-grafico-macos.md): instalador/desinstalador grafico, DMG completo e validacao.
 - [docs/11-orquestra-ai-control-plane.md](docs/11-orquestra-ai-control-plane.md): arquitetura do control plane, dominios e APIs.
 - [docs/12-orquestra-v2-memorygraph-workspace.md](docs/12-orquestra-v2-memorygraph-workspace.md): memoria, contexto, workspace, runtime e OSINT tecnico.
 - [docs/continuity/orquestra-current.md](docs/continuity/orquestra-current.md): protocolo de checkpoint e retomada com baixo uso de contexto.
@@ -48,7 +51,8 @@ As areas oficiais do produto sao:
 5. `Assistant Workspace`
 6. `OSINT Lab`
 7. `Workspace Browser`
-8. `Projects`
+8. `Settings`
+9. `Projects`
 
 ## Inicio rapido
 
@@ -217,10 +221,39 @@ Desinstalador base:
 ./scripts/uninstall_orquestra_macos.sh
 ```
 
+### Instalador grafico macOS
+
+O DMG padrao do app (`Orquestra AI_0.2.0_aarch64.dmg`) instala apenas o aplicativo. Para o wizard completo, gere o pacote grafico dedicado:
+
+```bash
+./scripts/build_orquestra_macos_graphical_installer.sh
+./scripts/validate_orquestra_macos_graphical_installer.sh
+open "orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI Installer_0.2.0_aarch64.dmg"
+```
+
+Esse DMG contem:
+
+- `Orquestra Installer.app`
+- `Orquestra Uninstaller.app`
+- `Orquestra AI.app`
+- `README Instalação.txt`
+
 Guia completo:
 
 - [docs/01-instalacao-validacao-macos.md](docs/01-instalacao-validacao-macos.md)
 - [docs/05-instalador-completo-macos.md](docs/05-instalador-completo-macos.md)
+- [docs/07-instalador-grafico-macos.md](docs/07-instalador-grafico-macos.md)
+
+## Configuracoes, storage e router
+
+O `Settings Center` e a superficie grafica para controlar instalacao e operacao apos o primeiro boot:
+
+- `Runtime & Storage`: mostra `runtime.json`, hub local de processamento, destinos locais/externos/cloud mounted, quotas, assignments por dominio e restricoes de storage frio.
+- `Providers & Keys`: cadastra chaves no macOS Keychain via `ai.orquestra.secrets`; `.env` continua aceito como fallback/importacao.
+- `Models & Router`: atualiza catalogo de modelos e simula decisoes do router interno por tarefa, preset, privacidade e disponibilidade.
+- `Agents`: registra agentes especializados por tarefa, provider/modelo e nivel de privacidade.
+
+Regra operacional: SQLite e indices ativos de RAG/memoria ficam em filesystem local ou volume montado confiavel. S3/SFTP/archive entram como storage frio para backups, exports, datasets, evidencias, snapshots e modelos grandes.
 
 ## Providers reais e smoke opcional
 
@@ -255,8 +288,15 @@ Variaveis comuns:
 - `orquestra_web/`: frontend React/Vite e shell desktop Tauri
 - `rag/`: engine RAG local integrado
 - `scripts/`: bootstrap, start, validacao, instalacao e empacotamento
-- `assets/brand/`: logo, wordmark e identidade visual
+- `assets/brand/`: logo padrao, wordmark legado e identidade visual
 - `docs/`: documentacao de operacao, arquitetura e continuidade
+
+Logo padrao:
+
+- fonte recebida: `Logo1.png`
+- asset canonico para documentacao: `assets/brand/orquestra-logo.png`
+- asset otimizado para UI: `orquestra_web/src/assets/orquestra-logo.png`
+- icones macOS/Tauri: `orquestra_web/src-tauri/icons/`
 
 ## Status atual e proximas etapas
 

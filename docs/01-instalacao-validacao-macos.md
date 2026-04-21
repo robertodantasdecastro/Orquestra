@@ -7,6 +7,7 @@ Este guia cobre o fluxo oficial para:
 - preparar o ambiente local
 - subir API, web, desktop e Train Plane
 - instalar o Orquestra como app macOS
+- gerar e validar o instalador/desinstalador grafico
 - validar backend, frontend, desktop e smoke operacional
 - habilitar providers reais quando desejado
 
@@ -41,6 +42,7 @@ Para um Mac novo ou sem dependencias, prefira primeiro o instalador completo:
 Guia detalhado:
 
 - [docs/05-instalador-completo-macos.md](./05-instalador-completo-macos.md)
+- [docs/07-instalador-grafico-macos.md](./07-instalador-grafico-macos.md)
 
 Se o ambiente ja tem Python, Node, Rust e dependencias basicas, use o bootstrap direto:
 
@@ -197,6 +199,44 @@ Validacao do pacote:
 ./scripts/validate_orquestra_macos_package.sh
 ```
 
+## Build do instalador grafico completo
+
+O DMG simples gerado pelo Tauri e apenas o pacote do app. O wizard completo usa apps dedicados para instalacao e desinstalacao:
+
+```bash
+./scripts/build_orquestra_macos_graphical_installer.sh
+```
+
+Artefatos esperados:
+
+- `orquestra_web/src-tauri/target/release/bundle/macos/Orquestra AI.app`
+- `orquestra_web/src-tauri/target/release/bundle/macos/Orquestra Installer.app`
+- `orquestra_web/src-tauri/target/release/bundle/macos/Orquestra Uninstaller.app`
+- `orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI Installer_0.2.0_aarch64.dmg`
+
+Validacao:
+
+```bash
+./scripts/validate_orquestra_macos_graphical_installer.sh
+open "orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI Installer_0.2.0_aarch64.dmg"
+```
+
+O instalador grafico chama os scripts oficiais por baixo em modo machine-readable e mostra:
+
+- diagnostico do Mac
+- dependencias obrigatorias
+- opcionais como LM Studio, Ollama, Tor, Brave e ffmpeg
+- runtime e storage
+- providers e chaves
+- resultado da instalacao
+
+O desinstalador grafico mostra:
+
+- instalacao detectada
+- itens removiveis
+- backup antes de apagar dados sensiveis
+- modos `Seguro seletivo`, `Preservar dependencias` e `Remover tudo`
+
 ## Instalacao do app no macOS
 
 Instalacao completa do zero:
@@ -223,6 +263,7 @@ O instalador:
 - gera o bundle quando necessario
 - copia `Orquestra AI.app` para `~/Applications`
 - sincroniza runtime para `~/Library/Application Support/Orquestra/runtime`
+- cria `~/Library/Application Support/Orquestra/runtime/config/runtime.json`
 - cria backup do banco antes do upgrade quando aplicavel
 - grava manifesto de instalacao
 - registra o LaunchAgent `ai.orquestra.api`
@@ -292,9 +333,21 @@ Por padrao o desinstalador:
 - Web: `http://127.0.0.1:4177`
 - App instalado: `~/Applications/Orquestra AI.app`
 - Runtime instalado: `~/Library/Application Support/Orquestra/runtime`
+- Runtime bootstrap: `~/Library/Application Support/Orquestra/runtime/config/runtime.json`
 - Logs: `~/Library/Logs/Orquestra`
 - Manifesto: `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/install_manifest.json`
 - Backups: `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/install/backups`
+
+## Settings Center apos a instalacao
+
+Depois da primeira abertura, use `Settings` para conferir e ajustar:
+
+- `Runtime & Storage`: caminhos reais, quotas, destinos locais/externos e storage frio
+- `Secrets & Providers`: chaves no Keychain e providers habilitados
+- `Models & Router`: catalogo de modelos, defaults e simulacao de roteamento
+- `Agents`: especialistas por tarefa e politica de privacidade
+
+SQLite e indices ativos de RAG/memoria nao devem ser apontados diretamente para S3/SFTP. Esses backends sao suportados como storage frio para backup, export, dataset, evidencias e snapshots.
 
 ## Procedimento recomendado para primeira subida
 

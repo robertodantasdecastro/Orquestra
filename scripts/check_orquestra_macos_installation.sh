@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECK_ONLY="false"
 STRICT="false"
+JSON_MODE="false"
 MISSING_REQUIRED=0
 
 usage() {
@@ -13,6 +14,7 @@ Uso: ./scripts/check_orquestra_macos_installation.sh [opcoes]
 Opcoes:
   --check-only  Executa apenas verificacoes, sem modificar nada.
   --strict      Retorna erro se algum item obrigatorio estiver ausente.
+  --json        Emite relatorio JSON machine-readable.
   -h, --help    Mostra esta ajuda.
 
 Categorias verificadas:
@@ -30,6 +32,10 @@ while [[ $# -gt 0 ]]; do
       STRICT="true"
       shift
       ;;
+    --json)
+      JSON_MODE="true"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -41,6 +47,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "${JSON_MODE}" == "true" ]]; then
+  /usr/bin/python3 "${ROOT_DIR}/scripts/orquestra_installer_contract.py" check
+  exit 0
+fi
 
 read_env_value() {
   local key="$1"

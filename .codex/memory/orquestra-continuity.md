@@ -1,69 +1,89 @@
 # Orquestra Continuity
 
-- Branch atual: `main`
-- Último commit íntegro: `cd5f32d`
-- Etapa concluída: `Implementação do instalador completo macOS, verificador, desinstalador seletivo e documentação de instalação do zero`
-- Estado do worktree: `pronto para checkpoint final do instalador completo`
+- Branch atual: `codex/orquestra-graphical-installer`
+- Último commit base: `64df030`
+- Etapa concluída: `Instalador/desinstalador gráfico macOS V1, Settings Center base, Storage Fabric local/frio, Keychain, router interno e logo padrão`
+- Estado esperado do worktree após checkpoint: `limpo após commit e push desta etapa`
 - Validações executadas:
-  - `.venv/bin/python -m py_compile orquestra_ai/app.py orquestra_ai/services.py orquestra_ai/rag_memory.py orquestra_ai/osint.py orquestra_ai/models.py orquestra_ai/schema_state.py`
+  - `.venv/bin/python -m py_compile orquestra_ai/app.py orquestra_ai/config.py orquestra_ai/gateway.py orquestra_ai/models.py orquestra_ai/operations.py orquestra_ai/runtime_state.py orquestra_ai/schema_state.py orquestra_ai/services.py orquestra_ai/storage.py orquestra_ai/secret_store.py orquestra_ai/model_router.py scripts/orquestra_installer_contract.py`
+  - `bash -n scripts/*.sh`
+  - `./scripts/install_orquestra_macos_full.sh --check-only --json`
+  - `./scripts/uninstall_orquestra_macos_full.sh --dry-run --json`
   - `.venv/bin/pytest -q`
-  - `npm --prefix orquestra_web run test`
+  - `npm --prefix orquestra_web run test -- --run`
   - `npm --prefix orquestra_web run build`
+  - `cargo check`
+  - `./scripts/build_orquestra_macos_graphical_installer.sh`
+  - `./scripts/validate_orquestra_macos_package.sh`
+  - `./scripts/validate_orquestra_macos_graphical_installer.sh`
   - `./scripts/validate_orquestra.sh`
   - `git diff --check`
 - Pendências abertas:
-  - validar manualmente o `OSINT Lab` com providers reais quando houver chaves/configuração disponíveis
-  - decidir a próxima micro-etapa entre `OCR/transcrição multimodal mais rica` e `integrações AWS reais do Train Plane`
-  - se necessário, expandir o `Execution Center` com métricas OSINT mais profundas além do resumo já exposto
+  - validar manualmente `Orquestra Installer.app` em usuario descartavel ou Mac limpo
+  - validar manualmente `Orquestra Uninstaller.app` removendo memoria/RAG/OSINT com backup
+  - configurar assinatura/notarizacao Developer ID para distribuicao publica
+  - validar providers reais no Settings Center com LM Studio, OpenAI/DeepSeek e Brave quando houver chaves
+  - evoluir migracoes reais de storage e backends S3/SFTP para alem do plano/contrato V1
 - Próxima ação exata:
-  - `Validar manualmente o instalador completo em um Mac limpo ou ambiente descartável; depois validar OSINT Lab com providers reais e seguir para OCR/transcrição multimodal ou integrações AWS reais do Train Plane`
+  - `Abrir orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI Installer_0.2.0_aarch64.dmg, rodar o Installer e o Uninstaller graficos em ambiente descartavel, validar providers reais no Settings Center e entao decidir a etapa de notarizacao ou storage remoto real.`
 - Arquivos principais tocados:
   - `README.md`
   - `docs/00-guia-da-documentacao.md`
   - `docs/01-instalacao-validacao-macos.md`
   - `docs/02-manual-operacional.md`
-  - `docs/03-osint-lab.md`
-  - `docs/04-train-plane.md`
   - `docs/05-instalador-completo-macos.md`
+  - `docs/06-settings-center-storage-fabric-router.md`
+  - `docs/07-instalador-grafico-macos.md`
   - `docs/11-orquestra-ai-control-plane.md`
   - `docs/12-orquestra-v2-memorygraph-workspace.md`
-  - `docs/continuity/orquestra-current.md`
-  - `scripts/install_orquestra_macos_full.sh`
-  - `scripts/check_orquestra_macos_installation.sh`
-  - `scripts/uninstall_orquestra_macos_full.sh`
-  - `scripts/install_orquestra_macos.sh`
-  - `.env.example`
+  - `assets/brand/orquestra-logo.png`
+  - `icon.png`
+  - `orquestra_web/src/assets/orquestra-logo.png`
+  - `orquestra_web/src-tauri/icons/`
+  - `orquestra_ai/storage.py`
+  - `orquestra_ai/secret_store.py`
+  - `orquestra_ai/model_router.py`
   - `orquestra_ai/app.py`
-  - `orquestra_ai/services.py`
-  - `orquestra_ai/rag_memory.py`
-  - `orquestra_ai/osint.py`
-  - `orquestra_web/src/api.ts`
+  - `orquestra_ai/models.py`
+  - `orquestra_ai/config.py`
+  - `orquestra_web/src/InstallerApps.tsx`
   - `orquestra_web/src/App.tsx`
-  - `tests/test_osint_api.py`
+  - `orquestra_web/src/api.ts`
+  - `orquestra_web/src-tauri/src/main.rs`
+  - `orquestra_web/src-tauri/tauri.conf.json`
+  - `orquestra_web/src-tauri/tauri.installer.conf.json`
+  - `orquestra_web/src-tauri/tauri.uninstaller.conf.json`
+  - `scripts/orquestra_installer_contract.py`
+  - `scripts/build_orquestra_macos_graphical_installer.sh`
+  - `scripts/validate_orquestra_macos_graphical_installer.sh`
+  - `scripts/install_orquestra_macos.sh`
+  - `scripts/install_orquestra_macos_full.sh`
+  - `scripts/uninstall_orquestra_macos_full.sh`
+  - `scripts/check_orquestra_macos_installation.sh`
+  - `tests/test_settings_installer.py`
   - `orquestra_web/src/App.test.tsx`
 - O que mudou:
-  - foi criado o instalador completo `install_orquestra_macos_full.sh`
-  - foi criado o verificador `check_orquestra_macos_installation.sh`
-  - foi criado o desinstalador seletivo `uninstall_orquestra_macos_full.sh`
-  - `.env.example` agora lista chaves OSINT, Tor proxy e modelo Whisper
-  - o instalador base deixou de depender de `mapfile`, melhorando compatibilidade com Bash do macOS
-  - foi criado o guia `docs/05-instalador-completo-macos.md`
-  - a documentacao principal foi reorganizada em guia, instalacao, manual operacional, OSINT Lab e Train Plane
-  - o `README` foi reescrito para refletir a superficie atual completa do produto
-  - os documentos tecnicos agora descrevem explicitamente memoria, contexto, OSINT, workspace e control plane
-  - o `OsintService` foi integrado ao bootstrap e ao runtime do app
-  - foram expostos endpoints `/api/osint/*` para config, conectores, source registry, investigações, search, fetch, crawl, evidence, claims e export
-  - `chat/stream` e `rag/query` agora aceitam contexto/evidência OSINT e inserem `OSINT evidence` na montagem real do prompt
-  - a aprovação de `MemoryReviewCandidate` e `OsintClaim` preserva proveniência em `metadata_json`
-  - a UI agora tem a área `OSINT Lab`, resumo no `Assistant Workspace` e resumo do `OSINT Connector Hub` no `Execution Center`
-  - testes backend/UI e documentação foram atualizados para a nova superfície
+  - foi criado o `Settings Center` na UI com Runtime & Storage, Secrets & Providers, Models & Router e Agents
+  - foi criado suporte a `runtime.json` no runtime instalado, sem quebrar o modo dev quando ele nao esta explicitamente habilitado
+  - foram adicionados modelos e APIs de `StorageLocation`, `StorageAssignment`, `StorageMigrationRun`, `SecretMetadata`, `ModelCatalogEntry`, `ModelRoutePolicy`, `AgentProfile` e `ModelRouteDecision`
+  - foi criado `StorageResolver` com bloqueio de SQLite/RAG ativo em S3/SFTP/archive
+  - foi criado `SecretStoreService` com Keychain macOS e fallback de teste/arquivo
+  - foi criado `OrquestraModelRouter` e integrado ao chat/RAG para registrar decisao de provider/modelo
+  - scripts de instalacao, verificacao e desinstalacao ganharam contratos JSON para UI grafica
+  - foi criado `Orquestra Installer.app` e `Orquestra Uninstaller.app` como modos Tauri dedicados
+  - foi criado `Orquestra AI Installer_0.2.0_aarch64.dmg` com app, installer, uninstaller e README de instalacao
+  - o dashboard agora mostra instalador CLI, desinstalador CLI, instalador grafico e DMG grafico
+  - a logo padrao passou a ser `Logo1.png`, projetada em `assets/brand/orquestra-logo.png`, assets web e icones Tauri/macOS
+  - a documentacao foi atualizada para instalador grafico, Settings Center, Storage Fabric, Keychain e router
 - O que validar na retomada:
-  - se os conectores reais escolhidos respondem conforme `credential_status` e `health_status`
-  - se a ordem de contexto continua estável em sessões longas com `preset=osint`
-  - se as políticas de retenção/licença escolhidas para novas fontes continuam adequadas antes de qualquer uso em dataset
+  - abrir o DMG grafico e testar cliques reais do wizard
+  - confirmar no Finder que os tres apps exibem o novo icone
+  - rodar instalacao obrigatoria em usuario descartavel
+  - cadastrar uma chave real via Settings Center e confirmar que ela nao aparece em API/log
+  - testar LM Studio local e Brave Search API quando as credenciais existirem
 - Riscos já conhecidos:
-  - os backends reais de busca dependem de credenciais e disponibilidade externa
-  - o suporte Tor continua preparado no fetcher, mas exige proxy local configurado para uso real
-  - a integração AWS real do Train Plane ainda não substitui o modo local/simulado atual
+  - os apps estao assinados ad-hoc e nao notarizados, adequados para uso local, nao para distribuicao publica ampla
+  - storage remoto frio tem contrato/guardrails V1, mas sync real S3/SFTP ainda deve evoluir
+  - a validacao com providers reais depende de credenciais externas
 - Comando de retomada:
   - `Leia AGENTS.md, .codex/memory/orquestra-continuity.md, git log --oneline -5 e git status --short. Continue a partir da Próxima ação exata, sem reanalisar toda a thread.`

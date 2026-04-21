@@ -34,7 +34,7 @@ from .models import (
     WorkspaceAsset,
     WorkspaceScan,
 )
-from .runtime_state import collect_runtime_state, resolve_dmg_bundle_path
+from .runtime_state import collect_runtime_state, resolve_app_version, resolve_dmg_bundle_path
 from .services import (
     job_record_to_dict,
     memory_record_to_dict,
@@ -394,7 +394,13 @@ class OrquestraOperations:
         app_bundle = installed_app if installed_app and installed_app.exists() else source_app_bundle
         dmg_bundle = resolve_dmg_bundle_path(source_root)
         installer = source_root / "scripts" / "install_orquestra_macos.sh"
+        full_installer = source_root / "scripts" / "install_orquestra_macos_full.sh"
         uninstaller = source_root / "scripts" / "uninstall_orquestra_macos.sh"
+        full_uninstaller = source_root / "scripts" / "uninstall_orquestra_macos_full.sh"
+        version = resolve_app_version(source_root)
+        graphical_installer_app = source_root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra Installer.app"
+        graphical_uninstaller_app = source_root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra Uninstaller.app"
+        graphical_installer_dmg = source_root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "dmg" / f"Orquestra AI Installer_{version}_aarch64.dmg"
         memory_dir = self.settings.artifacts_root / "memorygraph"
         workspace_dir = self.settings.artifacts_root / "workspace"
         db_path = self.settings.database_path
@@ -488,8 +494,18 @@ class OrquestraOperations:
                     "dmg_exists": dmg_bundle.exists(),
                     "installer_path": str(installer),
                     "installer_exists": installer.exists(),
+                    "full_installer_path": str(full_installer),
+                    "full_installer_exists": full_installer.exists(),
                     "uninstaller_path": str(uninstaller),
                     "uninstaller_exists": uninstaller.exists(),
+                    "full_uninstaller_path": str(full_uninstaller),
+                    "full_uninstaller_exists": full_uninstaller.exists(),
+                    "graphical_installer_app_path": str(graphical_installer_app),
+                    "graphical_installer_app_exists": graphical_installer_app.exists(),
+                    "graphical_uninstaller_app_path": str(graphical_uninstaller_app),
+                    "graphical_uninstaller_app_exists": graphical_uninstaller_app.exists(),
+                    "graphical_installer_dmg_path": str(graphical_installer_dmg),
+                    "graphical_installer_dmg_exists": graphical_installer_dmg.exists(),
                     "connectors_ready": ready_connectors,
                 },
             },
@@ -512,7 +528,13 @@ class OrquestraOperations:
         app_bundle = installed_app if installed_app and installed_app.exists() else source_app_bundle
         dmg_bundle = resolve_dmg_bundle_path(source_root)
         installer = source_root / "scripts" / "install_orquestra_macos.sh"
+        full_installer = source_root / "scripts" / "install_orquestra_macos_full.sh"
         uninstaller = source_root / "scripts" / "uninstall_orquestra_macos.sh"
+        full_uninstaller = source_root / "scripts" / "uninstall_orquestra_macos_full.sh"
+        version = resolve_app_version(source_root)
+        graphical_installer_app = source_root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra Installer.app"
+        graphical_uninstaller_app = source_root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "macos" / "Orquestra Uninstaller.app"
+        graphical_installer_dmg = source_root / "orquestra_web" / "src-tauri" / "target" / "release" / "bundle" / "dmg" / f"Orquestra AI Installer_{version}_aarch64.dmg"
 
         redis_host, redis_port = _url_host_port(self.settings.redis_url, 6379)
         lmstudio_base = os.getenv("LMSTUDIO_API_BASE", "http://localhost:1234/v1").rstrip("/")
@@ -675,11 +697,25 @@ class OrquestraOperations:
                 service_id="installer",
                 label="Instaladores macOS",
                 category="distribution",
-                ready=installer.exists() and uninstaller.exists(),
-                status="ready" if installer.exists() and uninstaller.exists() else "missing",
-                summary="Scripts de instalação e remoção do Orquestra no macOS.",
-                detail=str(installer),
-                metadata={"uninstaller_path": str(uninstaller)},
+                ready=full_installer.exists() and full_uninstaller.exists() and installer.exists() and uninstaller.exists(),
+                status="ready" if full_installer.exists() and full_uninstaller.exists() else "missing",
+                summary="Scripts CLI completos de instalação e remoção do Orquestra no macOS.",
+                detail=str(full_installer),
+                metadata={"installer_path": str(installer), "uninstaller_path": str(full_uninstaller)},
+            ),
+            self._service(
+                service_id="graphical_installer",
+                label="Instalador gráfico macOS",
+                category="distribution",
+                ready=graphical_installer_app.exists() and graphical_uninstaller_app.exists(),
+                status="ready" if graphical_installer_app.exists() and graphical_uninstaller_app.exists() else "missing",
+                summary="Wizard gráfico Tauri para instalar e desinstalar com storage, providers e Keychain.",
+                detail=str(graphical_installer_dmg),
+                metadata={
+                    "installer_app": str(graphical_installer_app),
+                    "uninstaller_app": str(graphical_uninstaller_app),
+                    "dmg": str(graphical_installer_dmg),
+                },
             ),
         ]
 

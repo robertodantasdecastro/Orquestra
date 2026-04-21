@@ -30,7 +30,9 @@ from .models import (
     MemoryRecord,
     MemoryReviewCandidate,
     MemoryTopic,
+    AgentProfile,
     ModelArtifact,
+    ModelRoutePolicy,
     OsintClaim,
     OsintConnectorConfig,
     OsintEvidence,
@@ -41,9 +43,12 @@ from .models import (
     ProjectDeployment,
     ProviderProfile,
     RemoteTrainPlaneConfig,
+    SecretMetadata,
     SessionTask,
     SessionSummary,
     SessionTranscript,
+    StorageLocation,
+    StorageMigrationRun,
     TrainingCandidate,
     WorkflowRun,
     WorkspaceAsset,
@@ -55,6 +60,14 @@ from .operations import OrquestraOperations
 from .planner import PlannerService
 from .rag_memory import RagMemoryService
 from .runtime_state import collect_runtime_state, resolve_app_version
+from .model_router import (
+    OrquestraModelRouter,
+    RouteRequest,
+    agent_profile_to_dict,
+    model_catalog_entry_to_dict,
+    model_route_policy_to_dict,
+)
+from .secret_store import SecretStoreService
 from .services import (
     LocalRagEngine,
     RagQueryOptions,
@@ -84,6 +97,13 @@ from .services import (
 )
 from .osint import OsintService, get_osint_config, save_osint_config, seed_osint_state
 from .session_profile import get_session_metadata, get_session_profile, profile_prompt_section, set_session_profile
+from .storage import (
+    DATA_DOMAINS,
+    StorageResolver,
+    storage_assignment_to_dict,
+    storage_location_to_dict,
+    storage_migration_to_dict,
+)
 from .trainplane import (
     TrainPlaneClientError,
     build_dataset_bundle_records,
@@ -108,8 +128,87 @@ class ProviderUpsertRequest(BaseModel):
     default_model: str | None = None
     model_prefix: str | None = None
     enabled: bool = True
+    secret_ref: str | None = None
+    health_status: str = "unknown"
+    routing_tags: list[str] = Field(default_factory=list)
+    cost_profile: dict[str, object] = Field(default_factory=dict)
+    privacy_level: str = "standard"
+    supports_tools: bool = False
     capabilities: list[str] = Field(default_factory=list)
     config: dict[str, object] = Field(default_factory=dict)
+
+
+class RuntimeSettingsRequest(BaseModel):
+    runtime_dir: str | None = None
+    data_root: str | None = None
+    database_url: str | None = None
+    qdrant_path: str | None = None
+    storage_policy: str | None = None
+
+
+class StorageLocationRequest(BaseModel):
+    label: str = ""
+    backend: str = "local_path"
+    base_uri: str
+    enabled: bool = True
+    priority: int = 100
+    quota_bytes: int | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class StorageAssignmentRequest(BaseModel):
+    location_id: str
+    mode: str = "hot"
+    relative_path: str = ""
+    quota_bytes: int | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class StorageMigrationPlanRequest(BaseModel):
+    domain: str
+    target_location_id: str
+    action: str = "migrate"
+
+
+class SecretCreateRequest(BaseModel):
+    provider_id: str
+    label: str = ""
+    value: str
+    secret_ref: str | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class ModelRoutePolicyRequest(BaseModel):
+    label: str
+    mode: str = "single_best"
+    task_type: str = "generic"
+    preset: str = ""
+    preferred_provider_id: str = ""
+    preferred_model_name: str = ""
+    fallback_chain: list[dict[str, object]] = Field(default_factory=list)
+    local_only: bool = False
+    enabled: bool = True
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class AgentProfileRequest(BaseModel):
+    label: str
+    description: str = ""
+    task_tags: list[str] = Field(default_factory=list)
+    provider_id: str = ""
+    model_name: str = ""
+    privacy_level: str = "standard"
+    enabled: bool = True
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class ModelRouterSimulateRequest(BaseModel):
+    session_id: str | None = None
+    task_type: str = "generic"
+    preset: str = ""
+    local_only: bool = False
+    provider_id: str | None = None
+    model_name: str | None = None
 
 
 class ProjectCreateRequest(BaseModel):
@@ -592,6 +691,8 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     memory_recall = MemoryRecallService(app_settings)
     osint_service = OsintService(app_settings)
     planner = PlannerService()
+    storage_resolver = StorageResolver(app_settings)
+    model_router = OrquestraModelRouter()
     candidate_extractor = MemoryCandidateExtractor()
     workspace_service = WorkspaceService(app_settings)
     operations = OrquestraOperations(app_settings)
@@ -863,9 +964,15 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         record.transport = payload.transport
         record.base_url = payload.base_url
         record.api_key_env = payload.api_key_env
+        record.secret_ref = payload.secret_ref
         record.default_model = payload.default_model
         record.model_prefix = payload.model_prefix
         record.enabled = payload.enabled
+        record.health_status = payload.health_status
+        record.routing_tags_json = json.dumps(payload.routing_tags, ensure_ascii=False)
+        record.cost_profile_json = json.dumps(payload.cost_profile, ensure_ascii=False)
+        record.privacy_level = payload.privacy_level
+        record.supports_tools = payload.supports_tools
         record.capabilities_json = json.dumps(payload.capabilities, ensure_ascii=False)
         record.config_json = json.dumps(payload.config, ensure_ascii=False)
         record.updated_at = utc_now()
@@ -876,6 +983,301 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
     @app.get("/api/models")
     def list_models(provider_id: str | None = None, gateway: OrquestraGateway = Depends(get_gateway)) -> dict[str, object]:
         return {"provider_id": provider_id or gateway.default_provider_id, "models": gateway.list_models(provider_id)}
+
+    @app.get("/api/settings/runtime")
+    def get_runtime_settings(session: Session = Depends(get_session)) -> dict[str, object]:
+        return storage_resolver.health_report(session)
+
+    @app.put("/api/settings/runtime")
+    def update_runtime_settings(payload: RuntimeSettingsRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        config_path = storage_resolver.write_runtime_config(payload.model_dump(exclude_none=True))
+        storage_resolver.seed_defaults(session)
+        report = storage_resolver.health_report(session)
+        report["runtime_config_written"] = str(config_path)
+        return report
+
+    @app.get("/api/settings/storage/locations")
+    def list_storage_locations(session: Session = Depends(get_session)) -> list[dict[str, object]]:
+        return storage_resolver.list_locations(session)
+
+    @app.post("/api/settings/storage/locations")
+    def create_storage_location(payload: StorageLocationRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        try:
+            record = storage_resolver.upsert_location(session, payload.model_dump())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return storage_location_to_dict(record)
+
+    @app.patch("/api/settings/storage/locations/{location_id}")
+    def patch_storage_location(
+        location_id: str,
+        payload: StorageLocationRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            record = storage_resolver.upsert_location(session, payload.model_dump(), location_id=location_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return storage_location_to_dict(record)
+
+    @app.delete("/api/settings/storage/locations/{location_id}")
+    def delete_storage_location(location_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = session.get(StorageLocation, location_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Local de armazenamento não encontrado.")
+        if record.id == "local-processing-hub":
+            raise HTTPException(status_code=400, detail="O processing hub local não pode ser removido.")
+        session.delete(record)
+        session.commit()
+        return {"ok": True, "removed": location_id}
+
+    @app.post("/api/settings/storage/test")
+    def test_storage_location(payload: StorageLocationRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        return storage_resolver.test_location(session, payload=payload.model_dump())
+
+    @app.post("/api/settings/storage/locations/{location_id}/test")
+    def test_existing_storage_location(location_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        try:
+            return storage_resolver.test_location(session, location_id=location_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Local de armazenamento não encontrado.") from exc
+
+    @app.get("/api/settings/storage/assignments")
+    def list_storage_assignments(session: Session = Depends(get_session)) -> dict[str, object]:
+        return {"domains": DATA_DOMAINS, "assignments": storage_resolver.list_assignments(session)}
+
+    @app.put("/api/settings/storage/assignments/{domain}")
+    def update_storage_assignment(
+        domain: str,
+        payload: StorageAssignmentRequest,
+        session: Session = Depends(get_session),
+    ) -> dict[str, object]:
+        try:
+            record = storage_resolver.update_assignment(session, domain, payload.model_dump())
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Local de armazenamento não encontrado.") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return storage_assignment_to_dict(record)
+
+    @app.post("/api/settings/storage/migrations/plan")
+    def plan_storage_migration(payload: StorageMigrationPlanRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        try:
+            return storage_resolver.create_migration_plan(session, payload.domain, payload.target_location_id, payload.action)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Local de armazenamento não encontrado.") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/settings/storage/migrations")
+    def create_storage_migration(payload: StorageMigrationPlanRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        planned = plan_storage_migration(payload, session)
+        planned["status"] = "planned"
+        planned["message"] = "V1 cria o plano seguro; execução com cópia/rollback entra pelo assistente de migração."
+        return planned
+
+    @app.get("/api/settings/storage/migrations/{migration_id}")
+    def get_storage_migration(migration_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = session.get(StorageMigrationRun, migration_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Migração não encontrada.")
+        return storage_migration_to_dict(record)
+
+    @app.get("/api/settings/secrets")
+    def list_secrets(session: Session = Depends(get_session)) -> list[dict[str, object]]:
+        rows = session.exec(select(SecretMetadata).order_by(SecretMetadata.provider_id)).all()
+        return [
+            {
+                "id": item.id,
+                "provider_id": item.provider_id,
+                "label": item.label,
+                "secret_ref": item.secret_ref,
+                "storage_backend": item.storage_backend,
+                "status": item.status,
+                "metadata": json.loads(item.metadata_json or "{}"),
+                "updated_at": item.updated_at.isoformat(),
+            }
+            for item in rows
+        ]
+
+    @app.post("/api/settings/secrets")
+    def create_secret(payload: SecretCreateRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        secret_ref = payload.secret_ref or f"{payload.provider_id}.api_key"
+        active_secret_store = SecretStoreService()
+        try:
+            active_secret_store.put_secret(secret_ref, payload.value)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Falha ao salvar segredo: {exc}") from exc
+        record = session.exec(select(SecretMetadata).where(SecretMetadata.secret_ref == secret_ref)).first()
+        if record is None:
+            record = SecretMetadata(provider_id=payload.provider_id, label=payload.label or payload.provider_id, secret_ref=secret_ref)
+        record.storage_backend = active_secret_store.backend_name()
+        record.status = "configured"
+        record.metadata_json = json.dumps(payload.metadata, ensure_ascii=False)
+        record.updated_at = utc_now()
+        session.add(record)
+        provider = session.exec(select(ProviderProfile).where(ProviderProfile.provider_id == payload.provider_id)).first()
+        if provider:
+            provider.secret_ref = secret_ref
+            provider.updated_at = utc_now()
+            session.add(provider)
+        session.commit()
+        return {"id": record.id, "provider_id": record.provider_id, "secret_ref": secret_ref, "configured": True, "storage_backend": record.storage_backend}
+
+    @app.post("/api/settings/secrets/{secret_id}/test")
+    def test_secret(secret_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = session.get(SecretMetadata, secret_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Segredo não encontrado.")
+        return SecretStoreService().test_secret(record.secret_ref)
+
+    @app.delete("/api/settings/secrets/{secret_id}")
+    def delete_secret(secret_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = session.get(SecretMetadata, secret_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Segredo não encontrado.")
+        SecretStoreService().delete_secret(record.secret_ref)
+        session.delete(record)
+        session.commit()
+        return {"ok": True, "removed": secret_id}
+
+    @app.post("/api/settings/models/refresh")
+    def refresh_model_catalog(
+        provider_id: str | None = None,
+        mock: bool = False,
+        session: Session = Depends(get_session),
+    ) -> list[dict[str, object]]:
+        gateway = OrquestraGateway(list_gateway_providers(session), mock=mock)
+        resolved_provider = provider_id or gateway.default_provider_id
+        try:
+            models = gateway.list_models(resolved_provider)
+        except Exception:
+            provider = session.exec(select(ProviderProfile).where(ProviderProfile.provider_id == resolved_provider)).first()
+            models = [provider.default_model] if provider and provider.default_model else []
+        return model_router.refresh_catalog(session, resolved_provider, [item for item in models if item])
+
+    @app.get("/api/settings/models")
+    def list_model_catalog(session: Session = Depends(get_session)) -> list[dict[str, object]]:
+        from .models import ModelCatalogEntry
+
+        rows = session.exec(select(ModelCatalogEntry).order_by(ModelCatalogEntry.provider_id, ModelCatalogEntry.model_name)).all()
+        return [model_catalog_entry_to_dict(item) for item in rows]
+
+    @app.get("/api/settings/model-router/policies")
+    def list_model_route_policies(session: Session = Depends(get_session)) -> list[dict[str, object]]:
+        rows = session.exec(select(ModelRoutePolicy).order_by(ModelRoutePolicy.created_at)).all()
+        return [model_route_policy_to_dict(item) for item in rows]
+
+    @app.post("/api/settings/model-router/policies")
+    def create_model_route_policy(payload: ModelRoutePolicyRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = ModelRoutePolicy(
+            label=payload.label,
+            mode=payload.mode,
+            task_type=payload.task_type,
+            preset=payload.preset,
+            preferred_provider_id=payload.preferred_provider_id,
+            preferred_model_name=payload.preferred_model_name,
+            fallback_chain_json=json.dumps(payload.fallback_chain, ensure_ascii=False),
+            local_only=payload.local_only,
+            enabled=payload.enabled,
+            metadata_json=json.dumps(payload.metadata, ensure_ascii=False),
+        )
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+        return model_route_policy_to_dict(record)
+
+    @app.patch("/api/settings/model-router/policies/{policy_id}")
+    def patch_model_route_policy(policy_id: str, payload: ModelRoutePolicyRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = session.get(ModelRoutePolicy, policy_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Política não encontrada.")
+        record.label = payload.label
+        record.mode = payload.mode
+        record.task_type = payload.task_type
+        record.preset = payload.preset
+        record.preferred_provider_id = payload.preferred_provider_id
+        record.preferred_model_name = payload.preferred_model_name
+        record.fallback_chain_json = json.dumps(payload.fallback_chain, ensure_ascii=False)
+        record.local_only = payload.local_only
+        record.enabled = payload.enabled
+        record.metadata_json = json.dumps(payload.metadata, ensure_ascii=False)
+        record.updated_at = utc_now()
+        session.add(record)
+        session.commit()
+        return model_route_policy_to_dict(record)
+
+    @app.delete("/api/settings/model-router/policies/{policy_id}")
+    def delete_model_route_policy(policy_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = session.get(ModelRoutePolicy, policy_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Política não encontrada.")
+        session.delete(record)
+        session.commit()
+        return {"ok": True, "removed": policy_id}
+
+    @app.post("/api/settings/model-router/simulate")
+    def simulate_model_router(payload: ModelRouterSimulateRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        return model_router.choose(
+            session,
+            RouteRequest(
+                session_id=payload.session_id,
+                task_type=payload.task_type,
+                preset=payload.preset,
+                local_only=payload.local_only,
+                provider_id=payload.provider_id,
+                model_name=payload.model_name,
+            ),
+        )
+
+    @app.get("/api/settings/agents")
+    def list_agent_profiles(session: Session = Depends(get_session)) -> list[dict[str, object]]:
+        rows = session.exec(select(AgentProfile).order_by(AgentProfile.label)).all()
+        return [agent_profile_to_dict(item) for item in rows]
+
+    @app.post("/api/settings/agents")
+    def create_agent_profile(payload: AgentProfileRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = AgentProfile(
+            label=payload.label,
+            description=payload.description,
+            task_tags_json=json.dumps(payload.task_tags, ensure_ascii=False),
+            provider_id=payload.provider_id,
+            model_name=payload.model_name,
+            privacy_level=payload.privacy_level,
+            enabled=payload.enabled,
+            metadata_json=json.dumps(payload.metadata, ensure_ascii=False),
+        )
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+        return agent_profile_to_dict(record)
+
+    @app.patch("/api/settings/agents/{agent_id}")
+    def patch_agent_profile(agent_id: str, payload: AgentProfileRequest, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = session.get(AgentProfile, agent_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Agente não encontrado.")
+        record.label = payload.label
+        record.description = payload.description
+        record.task_tags_json = json.dumps(payload.task_tags, ensure_ascii=False)
+        record.provider_id = payload.provider_id
+        record.model_name = payload.model_name
+        record.privacy_level = payload.privacy_level
+        record.enabled = payload.enabled
+        record.metadata_json = json.dumps(payload.metadata, ensure_ascii=False)
+        record.updated_at = utc_now()
+        session.add(record)
+        session.commit()
+        return agent_profile_to_dict(record)
+
+    @app.delete("/api/settings/agents/{agent_id}")
+    def delete_agent_profile(agent_id: str, session: Session = Depends(get_session)) -> dict[str, object]:
+        record = session.get(AgentProfile, agent_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Agente não encontrado.")
+        session.delete(record)
+        session.commit()
+        return {"ok": True, "removed": agent_id}
 
     @app.get("/api/connectors")
     def list_connectors() -> list[dict[str, object]]:
@@ -1452,6 +1854,22 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
 
         summary = memory_graph.get_or_build_summary(session, chat_session)
         profile = get_session_profile(chat_session)
+        route_decision = model_router.choose(
+            session,
+            RouteRequest(
+                session_id=chat_session.id,
+                task_type="chat",
+                preset=str(profile.get("preset", "")),
+                local_only=bool(profile.get("privacy_level") == "local_only"),
+                provider_id=payload.provider_id or None,
+                model_name=payload.model_name or None,
+            ),
+        )
+        provider_id = str(route_decision.get("provider_id") or provider_id)
+        model_name = str(route_decision.get("model_name") or model_name)
+        chat_session.provider_id = provider_id
+        chat_session.model_name = model_name
+        session.add(chat_session)
         memory_policy = profile.get("memory_policy", {})
         rag_policy = profile.get("rag_policy", {})
         effective_project_id = chat_session.project_id or payload.project_id
@@ -1584,6 +2002,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "osint_bundle": osint_bundle,
                     "workspace_context": workspace_bundle,
                     "legacy_sources": legacy_sources,
+                    "model_route_decision": route_decision,
                 },
                 ensure_ascii=False,
             ),
@@ -1644,6 +2063,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "legacy_sources": legacy_sources,
                     "memory_selector_mode": selector_mode,
                     "osint_bundle": osint_bundle,
+                    "model_route_decision": route_decision,
                 },
                 ensure_ascii=False,
             ),
@@ -1712,6 +2132,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
                     "osint_evidence_count": len(osint_bundle.get("evidence", [])),
                     "workspace_context_count": len(workspace_bundle.get("items", [])),
                     "legacy_source_count": len(legacy_sources),
+                    "model_route_decision": route_decision,
                 },
             )
 
@@ -1985,14 +2406,24 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
         chat_session = session.get(ChatSession, payload.session_id) if payload.session_id else None
         session_profile = get_session_profile(chat_session) if chat_session is not None else {}
         include_osint_default = session_profile.get("preset") == "osint"
+        route_decision = model_router.choose(
+            session,
+            RouteRequest(
+                session_id=payload.session_id,
+                task_type=payload.task_type or "rag_query",
+                preset=str(session_profile.get("preset", "")),
+                provider_id=payload.provider_id,
+                model_name=payload.model_name,
+            ),
+        )
         result = engine_service.query(
             session,
             RagQueryOptions(
                 question=payload.question,
                 session_id=payload.session_id,
                 collection_name=payload.collection_name,
-                provider_id=payload.provider_id,
-                model_name=payload.model_name,
+                provider_id=str(route_decision.get("provider_id") or payload.provider_id or ""),
+                model_name=str(route_decision.get("model_name") or payload.model_name or ""),
                 expected_output=payload.expected_output,
                 task_type=payload.task_type,
                 remember=payload.remember,
@@ -2017,6 +2448,7 @@ def create_app(settings: OrquestraSettings | None = None) -> FastAPI:
             ),
             project_id=payload.project_id,
         )
+        result["model_route_decision"] = route_decision
         session.commit()
         return JSONResponse(result)
 

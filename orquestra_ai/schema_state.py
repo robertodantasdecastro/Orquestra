@@ -11,7 +11,7 @@ from sqlmodel import Session
 
 from .models import RuntimeMetadata
 
-ORQUESTRA_DB_SCHEMA_VERSION = 8
+ORQUESTRA_DB_SCHEMA_VERSION = 9
 ORQUESTRA_DB_LEGACY_VERSION = 1
 
 
@@ -93,6 +93,14 @@ def apply_schema_migrations(engine: Engine, *, existing_tables: set[str] | None 
                     """
                 )
             )
+        if "providerprofile" in tables:
+            _ensure_column(connection, inspector, "providerprofile", "secret_ref", "VARCHAR")
+            _ensure_column(connection, inspector, "providerprofile", "health_status", "VARCHAR DEFAULT 'unknown'")
+            _ensure_column(connection, inspector, "providerprofile", "last_checked_at", "DATETIME")
+            _ensure_column(connection, inspector, "providerprofile", "routing_tags_json", "VARCHAR DEFAULT '[]'")
+            _ensure_column(connection, inspector, "providerprofile", "cost_profile_json", "VARCHAR DEFAULT '{}'")
+            _ensure_column(connection, inspector, "providerprofile", "privacy_level", "VARCHAR DEFAULT 'standard'")
+            _ensure_column(connection, inspector, "providerprofile", "supports_tools", "BOOLEAN DEFAULT 0")
 
     with Session(engine) as session:
         history_record = _get_metadata(session, "schema_history_json")

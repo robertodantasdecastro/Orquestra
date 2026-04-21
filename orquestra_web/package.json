@@ -9,7 +9,10 @@
     "test": "vitest run --environment jsdom",
     "preview": "vite preview --host 127.0.0.1 --port 4177",
     "desktop:dev": "VITE_ORQUESTRA_API_BASE=http://127.0.0.1:8808 tauri dev",
-    "desktop:build": "VITE_ORQUESTRA_API_BASE=http://127.0.0.1:8808 tauri build"
+    "desktop:build": "VITE_ORQUESTRA_API_BASE=http://127.0.0.1:8808 tauri build",
+    "desktop:build:installer": "VITE_ORQUESTRA_APP_MODE=installer tauri build --config src-tauri/tauri.installer.conf.json",
+    "desktop:build:uninstaller": "VITE_ORQUESTRA_APP_MODE=uninstaller tauri build --config src-tauri/tauri.uninstaller.conf.json",
+    "desktop:build:distribution": "npm run desktop:build && npm run desktop:build:installer && npm run desktop:build:uninstaller"
   },
   "dependencies": {
     "react": "^18.3.1",

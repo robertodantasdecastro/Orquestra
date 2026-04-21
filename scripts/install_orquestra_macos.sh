@@ -9,7 +9,7 @@ fi
 ROOT_DIR="${ORQUESTRA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 APP_NAME="Orquestra AI.app"
 INSTALL_DIR="${ORQUESTRA_INSTALL_DIR:-$HOME/Applications/$APP_NAME}"
-APP_SOURCE="${ROOT_DIR}/orquestra_web/src-tauri/target/release/bundle/macos/${APP_NAME}"
+APP_SOURCE="${ORQUESTRA_APP_SOURCE:-${ROOT_DIR}/orquestra_web/src-tauri/target/release/bundle/macos/${APP_NAME}}"
 PACKAGE_VERSION="$(/usr/bin/python3 - <<'PY' "${ROOT_DIR}/orquestra_web/package.json"
 import json
 import pathlib
@@ -29,6 +29,7 @@ RUNTIME_DIR="${SUPPORT_DIR}/runtime"
 INSTALL_STATE_DIR="${RUNTIME_DIR}/experiments/orquestra/install"
 BACKUP_DIR="${INSTALL_STATE_DIR}/backups"
 MANIFEST_PATH="${INSTALL_STATE_DIR}/install_manifest.json"
+RUNTIME_CONFIG_PATH="${RUNTIME_DIR}/config/runtime.json"
 DB_PATH="${RUNTIME_DIR}/experiments/orquestra/orquestra_v2.db"
 LOG_DIR="${HOME}/Library/Logs/Orquestra"
 LAUNCH_AGENTS_DIR="${HOME}/Library/LaunchAgents"
@@ -41,6 +42,8 @@ VERIFY_PACKAGE="true"
 WAIT_API="true"
 OPEN_APP="false"
 SYNC_RUNTIME="true"
+JSON_MODE="false"
+PLAN_FILE=""
 
 usage() {
   cat <<USAGE
@@ -54,6 +57,8 @@ Opcoes:
   --no-runtime-sync   Não espelha o runtime em ~/Library/Application Support/Orquestra/runtime.
   --no-wait-api       Não aguarda /api/health após registrar o LaunchAgent.
   --open              Abre o app instalado ao final.
+  --json             Emite plano JSON machine-readable e sai.
+  --plan-file PATH   Salva plano JSON para UI grafica.
   --install-dir PATH  Define o destino do .app. Padrao: ~/Applications/Orquestra AI.app.
   -h, --help          Mostra esta ajuda.
 
@@ -94,6 +99,14 @@ while [[ $# -gt 0 ]]; do
       OPEN_APP="true"
       shift
       ;;
+    --json)
+      JSON_MODE="true"
+      shift
+      ;;
+    --plan-file)
+      PLAN_FILE="${2:-}"
+      shift 2
+      ;;
     --install-dir)
       INSTALL_DIR="${2:-}"
       if [[ -z "${INSTALL_DIR}" ]]; then
@@ -113,6 +126,15 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "${JSON_MODE}" == "true" ]]; then
+  /usr/bin/python3 "${ROOT_DIR}/scripts/orquestra_installer_contract.py" install-plan
+  exit 0
+fi
+
+if [[ -n "${PLAN_FILE}" ]]; then
+  /usr/bin/python3 "${ROOT_DIR}/scripts/orquestra_installer_contract.py" install-plan > "${PLAN_FILE}"
+fi
 
 mkdir -p "$(dirname "${INSTALL_DIR}")" "${SUPPORT_DIR}" "${LOG_DIR}" "${LAUNCH_AGENTS_DIR}"
 
@@ -247,6 +269,9 @@ PY
   export ORQUESTRA_INSTALL_BACKUP_PATH="${BACKUP_PATH}"
   export ORQUESTRA_INSTALL_PREVIOUS_VERSION="${PREVIOUS_VERSION}"
   export ORQUESTRA_INSTALL_PREVIOUS_INSTALLED_AT="${PREVIOUS_INSTALLED_AT}"
+  export ORQUESTRA_INSTALL_RUNTIME_CONFIG_PATH="${RUNTIME_CONFIG_PATH}"
+  export ORQUESTRA_INSTALL_DATABASE_URL="sqlite:///${DB_PATH}"
+  export ORQUESTRA_INSTALL_QDRANT_PATH="${RUNTIME_DIR}/experiments/orquestra/qdrant"
   /usr/bin/python3 - <<'PY'
 import json
 import os
@@ -278,6 +303,23 @@ payload = {
 path = pathlib.Path(os.environ["ORQUESTRA_INSTALL_MANIFEST_PATH"])
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+runtime_config = {
+    "version": 1,
+    "runtime_dir": os.environ["ORQUESTRA_INSTALL_RUNTIME_DIR"],
+    "data_root": str(pathlib.Path(os.environ["ORQUESTRA_INSTALL_RUNTIME_DIR"]) / "experiments" / "orquestra"),
+    "database_url": os.environ["ORQUESTRA_INSTALL_DATABASE_URL"],
+    "qdrant_path": os.environ["ORQUESTRA_INSTALL_QDRANT_PATH"],
+    "storage_policy": "local_processing_hub",
+    "installed_at": payload["installed_at"],
+}
+config_path = pathlib.Path(os.environ["ORQUESTRA_INSTALL_RUNTIME_CONFIG_PATH"])
+config_path.parent.mkdir(parents=True, exist_ok=True)
+config_path.write_text(json.dumps(runtime_config, ensure_ascii=False, indent=2), encoding="utf-8")
+try:
+    config_path.chmod(0o600)
+except OSError:
+    pass
 PY
 else
   echo "[orquestra-install] runtime sync desativado (--no-runtime-sync)"
@@ -307,6 +349,10 @@ cat > "${LAUNCH_AGENT_PLIST}" <<PLIST
   <dict>
     <key>ORQUESTRA_ROOT</key>
     <string>${RUNTIME_DIR}</string>
+    <key>ORQUESTRA_RUNTIME_CONFIG</key>
+    <string>${RUNTIME_CONFIG_PATH}</string>
+    <key>ORQUESTRA_USE_INSTALLED_RUNTIME</key>
+    <string>1</string>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION</key>

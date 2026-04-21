@@ -31,6 +31,13 @@ class ProviderProfile(SQLModel, table=True):
     default_model: Optional[str] = None
     model_prefix: Optional[str] = None
     enabled: bool = True
+    secret_ref: Optional[str] = None
+    health_status: str = "unknown"
+    last_checked_at: Optional[datetime] = None
+    routing_tags_json: str = "[]"
+    cost_profile_json: str = "{}"
+    privacy_level: str = "standard"
+    supports_tools: bool = False
     capabilities_json: str = "[]"
     config_json: str = "{}"
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
@@ -43,6 +50,124 @@ class RuntimeMetadata(SQLModel, table=True):
     key: str = Field(primary_key=True)
     value: str = ""
     updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class RuntimeSetting(SQLModel, table=True):
+    key: str = Field(primary_key=True)
+    value_json: str = "{}"
+    category: str = Field(default="runtime", index=True)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class StorageLocation(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    label: str
+    backend: str = Field(default="local_path", index=True)
+    base_uri: str
+    enabled: bool = True
+    priority: int = 100
+    quota_bytes: Optional[int] = None
+    used_bytes: int = 0
+    health_status: str = "unknown"
+    last_checked_at: Optional[datetime] = None
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class StorageAssignment(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    domain: str = Field(index=True, unique=True)
+    location_id: str = Field(foreign_key="storagelocation.id", index=True)
+    mode: str = "hot"
+    relative_path: str = ""
+    quota_bytes: Optional[int] = None
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class StorageMigrationRun(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    domain: str = Field(index=True)
+    source_location_id: Optional[str] = Field(default=None, foreign_key="storagelocation.id")
+    target_location_id: str = Field(foreign_key="storagelocation.id", index=True)
+    action: str = "migrate"
+    status: str = Field(default="planned", index=True)
+    backup_path: str = ""
+    result_json: str = "{}"
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class SecretMetadata(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    provider_id: str = Field(index=True)
+    label: str
+    secret_ref: str = Field(index=True, unique=True)
+    storage_backend: str = "keychain"
+    status: str = "configured"
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class ModelCatalogEntry(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    provider_id: str = Field(index=True)
+    model_name: str = Field(index=True)
+    display_name: str = ""
+    context_window: Optional[int] = None
+    supports_tools: bool = False
+    routing_tags_json: str = "[]"
+    metadata_json: str = "{}"
+    last_seen_at: datetime = Field(default_factory=utc_now, nullable=False)
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class ModelRoutePolicy(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    label: str
+    mode: str = "single_best"
+    task_type: str = Field(default="generic", index=True)
+    preset: str = ""
+    preferred_provider_id: str = ""
+    preferred_model_name: str = ""
+    fallback_chain_json: str = "[]"
+    local_only: bool = False
+    enabled: bool = True
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class AgentProfile(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    label: str
+    description: str = ""
+    task_tags_json: str = "[]"
+    provider_id: str = ""
+    model_name: str = ""
+    privacy_level: str = "standard"
+    enabled: bool = True
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class ModelRouteDecision(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    session_id: Optional[str] = Field(default=None, foreign_key="chatsession.id", index=True)
+    task_type: str = "generic"
+    mode: str = "single_best"
+    provider_id: str
+    model_name: str
+    policy_id: Optional[str] = Field(default=None, foreign_key="modelroutepolicy.id")
+    reason: str = ""
+    metadata_json: str = "{}"
+    created_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
 class ChatSession(SQLModel, table=True):

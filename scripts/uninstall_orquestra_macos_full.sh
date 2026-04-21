@@ -7,6 +7,9 @@ ASSUME_YES="false"
 SELECTED_RAW=""
 BACKUP_MODE="ask"
 CONFIRM_REMOVE_ALL="false"
+JSON_MODE="false"
+PLAN_FILE=""
+EMIT_EVENTS="false"
 
 APP_NAME="Orquestra AI.app"
 APP_PROCESS_NAME="orquestra-desktop"
@@ -31,6 +34,11 @@ Opcoes:
   --backup-data                  Cria backup antes de remover dados sensiveis.
   --no-backup                    Nao cria backup.
   --confirm-remove-all           Confirma modo all em execucao nao interativa.
+  --json                         Emite contrato JSON machine-readable em dry-run.
+  --plan-file path               Salva plano JSON para UI grafica.
+  --emit-events                  Emite eventos JSONL simples para UI grafica.
+  --no-tty                       Alias seguro para execucao sem prompt interativo.
+  --no-secrets-output            Garante que segredos nunca sejam impressos.
   -h, --help                     Mostra esta ajuda.
 
 Ids principais:
@@ -73,6 +81,21 @@ while [[ $# -gt 0 ]]; do
       CONFIRM_REMOVE_ALL="true"
       shift
       ;;
+    --json)
+      JSON_MODE="true"
+      shift
+      ;;
+    --plan-file)
+      PLAN_FILE="${2:-}"
+      shift 2
+      ;;
+    --emit-events)
+      EMIT_EVENTS="true"
+      shift
+      ;;
+    --no-tty|--no-secrets-output)
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -84,6 +107,20 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ "${JSON_MODE}" == "true" && "${DRY_RUN}" == "true" ]]; then
+  /usr/bin/python3 "${ROOT_DIR}/scripts/orquestra_installer_contract.py" uninstall-plan --mode "${MODE}"
+  exit 0
+fi
+
+if [[ -n "${PLAN_FILE}" ]]; then
+  /usr/bin/python3 "${ROOT_DIR}/scripts/orquestra_installer_contract.py" uninstall-plan --mode "${MODE}" > "${PLAN_FILE}"
+fi
+
+if [[ "${EMIT_EVENTS}" == "true" ]]; then
+  /usr/bin/python3 "${ROOT_DIR}/scripts/orquestra_installer_contract.py" emit-smoke
+fi
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "[orquestra-full-uninstall] este desinstalador e apenas para macOS" >&2

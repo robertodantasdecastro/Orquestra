@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import os
+import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
 class OrquestraSettings:
     workspace_root: Path
+    runtime_dir: Path
+    runtime_config_path: Path
+    runtime_config: dict[str, Any]
     api_host: str
     api_port: int
     database_url: str
@@ -52,15 +57,56 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def default_runtime_dir() -> Path:
+    return Path.home() / "Library" / "Application Support" / "Orquestra" / "runtime"
+
+
+def _read_runtime_config(path: Path) -> dict[str, Any]:
+    try:
+        if path.exists():
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+    return {}
+
+
+def _configured_path(value: object, fallback: Path) -> Path:
+    if isinstance(value, str) and value.strip():
+        return Path(value).expanduser()
+    return fallback
+
+
 def load_settings(workspace_root: Path | None = None) -> OrquestraSettings:
     root = (workspace_root or Path(__file__).resolve().parents[1]).expanduser().resolve()
+    runtime_dir = Path(os.getenv("ORQUESTRA_RUNTIME_DIR", str(default_runtime_dir()))).expanduser()
+    runtime_config_path = Path(
+        os.getenv("ORQUESTRA_RUNTIME_CONFIG", str(runtime_dir / "config" / "runtime.json"))
+    ).expanduser()
+    runtime_config = _read_runtime_config(runtime_config_path)
+    installed_runtime_enabled = bool(os.getenv("ORQUESTRA_RUNTIME_CONFIG")) or _env_bool("ORQUESTRA_USE_INSTALLED_RUNTIME", False)
     artifacts_root = root / "experiments" / "orquestra"
+    if installed_runtime_enabled:
+        artifacts_root = _configured_path(
+            runtime_config.get("data_root"),
+            runtime_dir / "experiments" / "orquestra",
+        )
+    artifacts_root = Path(os.getenv("ORQUESTRA_ARTIFACTS_ROOT", str(artifacts_root))).expanduser()
     default_db_path = artifacts_root / "orquestra_v2.db"
-    database_url = os.getenv("ORQUESTRA_DATABASE_URL") or f"sqlite:///{default_db_path}"
-    qdrant_path = Path(os.getenv("ORQUESTRA_QDRANT_PATH", str(artifacts_root / "qdrant"))).expanduser()
+    database_url = (
+        os.getenv("ORQUESTRA_DATABASE_URL")
+        or str(runtime_config.get("database_url") or "")
+        or f"sqlite:///{default_db_path}"
+    )
+    qdrant_path = Path(
+        os.getenv("ORQUESTRA_QDRANT_PATH", str(runtime_config.get("qdrant_path") or artifacts_root / "qdrant"))
+    ).expanduser()
 
     return OrquestraSettings(
         workspace_root=root,
+        runtime_dir=runtime_dir,
+        runtime_config_path=runtime_config_path,
+        runtime_config=runtime_config,
         api_host=os.getenv("ORQUESTRA_API_HOST", "127.0.0.1"),
         api_port=int(os.getenv("ORQUESTRA_API_PORT", "8808")),
         database_url=database_url,

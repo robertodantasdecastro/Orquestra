@@ -54,6 +54,10 @@ export type RuntimeState = {
   schema_updated_at?: string | null;
   mode: string;
   managed: boolean;
+  runtime_dir?: string;
+  runtime_config_path?: string;
+  runtime_config_exists?: boolean;
+  data_root?: string;
   manifest_path: string;
   backup_dir: string;
   backup_count: number;
@@ -69,12 +73,95 @@ export type ProviderProfile = {
   transport: string;
   base_url?: string | null;
   api_key_env?: string | null;
+  secret_ref?: string | null;
   default_model?: string | null;
   model_prefix?: string | null;
   enabled: boolean;
+  health_status?: string;
+  last_checked_at?: string | null;
+  routing_tags?: string[];
+  cost_profile?: Record<string, unknown>;
+  privacy_level?: string;
+  supports_tools?: boolean;
   capabilities: string[];
   config: Record<string, unknown>;
   updated_at: string;
+};
+
+export type StorageLocation = {
+  id: string;
+  label: string;
+  backend: string;
+  base_uri: string;
+  enabled: boolean;
+  priority: number;
+  quota_bytes?: number | null;
+  used_bytes: number;
+  health_status: string;
+  metadata: Record<string, unknown>;
+  updated_at: string;
+};
+
+export type StorageAssignment = {
+  id: string;
+  domain: string;
+  location_id: string;
+  mode: string;
+  relative_path: string;
+  quota_bytes?: number | null;
+  metadata: Record<string, unknown>;
+};
+
+export type RuntimeSettingsReport = {
+  runtime: Record<string, unknown>;
+  locations: StorageLocation[];
+  assignments: StorageAssignment[];
+  domains: Array<{ domain: string; label: string; relative_path: string; mode: string; resolved_path: string }>;
+  policy: Record<string, unknown>;
+};
+
+export type SecretMetadata = {
+  id: string;
+  provider_id: string;
+  label: string;
+  secret_ref: string;
+  storage_backend: string;
+  status: string;
+  metadata: Record<string, unknown>;
+  updated_at: string;
+};
+
+export type ModelCatalogEntry = {
+  id: string;
+  provider_id: string;
+  model_name: string;
+  display_name: string;
+  supports_tools: boolean;
+  routing_tags: string[];
+};
+
+export type ModelRoutePolicy = {
+  id: string;
+  label: string;
+  mode: string;
+  task_type: string;
+  preset: string;
+  preferred_provider_id: string;
+  preferred_model_name: string;
+  fallback_chain: Array<Record<string, unknown>>;
+  local_only: boolean;
+  enabled: boolean;
+};
+
+export type AgentProfile = {
+  id: string;
+  label: string;
+  description: string;
+  task_tags: string[];
+  provider_id: string;
+  model_name: string;
+  privacy_level: string;
+  enabled: boolean;
 };
 
 export type Project = {
@@ -897,8 +984,18 @@ export type OpsDashboard = {
       dmg_exists: boolean;
       installer_path: string;
       installer_exists: boolean;
+      full_installer_path?: string;
+      full_installer_exists?: boolean;
       uninstaller_path: string;
       uninstaller_exists: boolean;
+      full_uninstaller_path?: string;
+      full_uninstaller_exists?: boolean;
+      graphical_installer_app_path?: string;
+      graphical_installer_app_exists?: boolean;
+      graphical_uninstaller_app_path?: string;
+      graphical_uninstaller_app_exists?: boolean;
+      graphical_installer_dmg_path?: string;
+      graphical_installer_dmg_exists?: boolean;
       connectors_ready: number;
     };
   };
@@ -939,9 +1036,15 @@ export async function upsertProvider(payload: {
   transport: string;
   base_url?: string | null;
   api_key_env?: string | null;
+  secret_ref?: string | null;
   default_model?: string | null;
   model_prefix?: string | null;
   enabled?: boolean;
+  health_status?: string;
+  routing_tags?: string[];
+  cost_profile?: Record<string, unknown>;
+  privacy_level?: string;
+  supports_tools?: boolean;
   capabilities?: string[];
   config?: Record<string, unknown>;
 }) {
@@ -965,6 +1068,64 @@ export async function createProject(payload: {
 export async function listModels(providerId?: string) {
   const query = providerId ? `?provider_id=${encodeURIComponent(providerId)}` : "";
   return request<{ provider_id: string; models: string[] }>(`/api/models${query}`);
+}
+
+export async function getRuntimeSettings() {
+  return request<RuntimeSettingsReport>("/api/settings/runtime");
+}
+
+export async function updateRuntimeSettings(payload: Record<string, unknown>) {
+  return request<RuntimeSettingsReport>("/api/settings/runtime", { method: "PUT", body: JSON.stringify(payload) });
+}
+
+export async function listStorageLocations() {
+  return request<StorageLocation[]>("/api/settings/storage/locations");
+}
+
+export async function createStorageLocation(payload: Partial<StorageLocation> & { base_uri: string }) {
+  return request<StorageLocation>("/api/settings/storage/locations", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function listStorageAssignments() {
+  return request<{ domains: Record<string, unknown>; assignments: StorageAssignment[] }>("/api/settings/storage/assignments");
+}
+
+export async function updateStorageAssignment(domain: string, payload: Partial<StorageAssignment> & { location_id: string }) {
+  return request<StorageAssignment>(`/api/settings/storage/assignments/${encodeURIComponent(domain)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function listSecrets() {
+  return request<SecretMetadata[]>("/api/settings/secrets");
+}
+
+export async function createSecret(payload: { provider_id: string; label?: string; value: string; secret_ref?: string; metadata?: Record<string, unknown> }) {
+  return request<{ id: string; provider_id: string; secret_ref: string; configured: boolean }>("/api/settings/secrets", {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function refreshModelCatalog(providerId?: string, mock = false) {
+  const params = new URLSearchParams();
+  if (providerId) params.set("provider_id", providerId);
+  if (mock) params.set("mock", "true");
+  const query = params.toString();
+  return request<ModelCatalogEntry[]>(`/api/settings/models/refresh${query ? `?${query}` : ""}`, { method: "POST" });
+}
+
+export async function listModelRoutePolicies() {
+  return request<ModelRoutePolicy[]>("/api/settings/model-router/policies");
+}
+
+export async function simulateModelRouter(payload: Record<string, unknown>) {
+  return request<Record<string, unknown>>("/api/settings/model-router/simulate", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function listAgents() {
+  return request<AgentProfile[]>("/api/settings/agents");
 }
 
 export async function createSession(payload: {

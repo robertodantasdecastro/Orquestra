@@ -19,6 +19,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("ORQUESTRA_DATABASE_URL", f"sqlite:///{tmp_path / 'orquestra-test.db'}")
     monkeypatch.setenv("ORQUESTRA_QDRANT_PATH", str(tmp_path / "qdrant"))
     monkeypatch.setenv("ORQUESTRA_APP_VERSION", "test-suite")
+    monkeypatch.setenv("ORQUESTRA_DISABLE_KEYCHAIN", "1")
+    monkeypatch.setenv("ORQUESTRA_SECRET_FILE_DIR", str(tmp_path / "secrets"))
     app = create_app(load_settings(REPO_ROOT))
     with TestClient(app) as test_client:
         yield test_client

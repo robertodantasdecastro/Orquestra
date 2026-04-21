@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import App from "./App";
+import { InstallerApp, UninstallerApp } from "./InstallerApps";
 
 const SESSION_ID = "session-1";
 const WORKFLOW_ID = "workflow-1";
@@ -188,8 +189,18 @@ function mockApi(url: string) {
           dmg_exists: true,
           installer_path: "/tmp/install.sh",
           installer_exists: true,
+          full_installer_path: "/tmp/install-full.sh",
+          full_installer_exists: true,
           uninstaller_path: "/tmp/uninstall.sh",
           uninstaller_exists: true,
+          full_uninstaller_path: "/tmp/uninstall-full.sh",
+          full_uninstaller_exists: true,
+          graphical_installer_app_path: "/tmp/Orquestra Installer.app",
+          graphical_installer_app_exists: false,
+          graphical_uninstaller_app_path: "/tmp/Orquestra Uninstaller.app",
+          graphical_uninstaller_app_exists: false,
+          graphical_installer_dmg_path: "/tmp/Orquestra AI Installer.dmg",
+          graphical_installer_dmg_exists: false,
           connectors_ready: 0
         }
       }
@@ -198,6 +209,94 @@ function mockApi(url: string) {
 
   if (path === "/api/models") {
     return jsonResponse({ provider_id: "lmstudio", models: ["ministral"] });
+  }
+
+  if (path === "/api/settings/runtime") {
+    return jsonResponse({
+      runtime: {
+        runtime_dir: "/Users/test/Library/Application Support/Orquestra/runtime",
+        data_root: "/Users/test/Library/Application Support/Orquestra/runtime/experiments/orquestra",
+        database_url: "sqlite:////tmp/orquestra.db",
+        qdrant_path: "/tmp/qdrant"
+      },
+      locations: [
+        {
+          id: "local-processing-hub",
+          label: "Processing Hub Local",
+          backend: "local_path",
+          base_uri: "/tmp/orquestra",
+          enabled: true,
+          priority: 1,
+          quota_bytes: null,
+          used_bytes: 0,
+          health_status: "ok",
+          metadata: {},
+          updated_at: new Date().toISOString()
+        }
+      ],
+      assignments: [],
+      domains: [],
+      policy: {}
+    });
+  }
+
+  if (path === "/api/settings/storage/locations") {
+    return jsonResponse([
+      {
+        id: "local-processing-hub",
+        label: "Processing Hub Local",
+        backend: "local_path",
+        base_uri: "/tmp/orquestra",
+        enabled: true,
+        priority: 1,
+        quota_bytes: null,
+        used_bytes: 0,
+        health_status: "ok",
+        metadata: {},
+        updated_at: new Date().toISOString()
+      }
+    ]);
+  }
+
+  if (path === "/api/settings/storage/assignments") {
+    return jsonResponse({
+      domains: {},
+      assignments: [
+        {
+          id: "assign-1",
+          domain: "sqlite_active",
+          location_id: "local-processing-hub",
+          mode: "hot",
+          relative_path: "orquestra_v2.db",
+          metadata: {}
+        }
+      ]
+    });
+  }
+
+  if (path === "/api/settings/secrets") {
+    return jsonResponse([]);
+  }
+
+  if (path === "/api/settings/model-router/policies") {
+    return jsonResponse([
+      {
+        id: "policy-1",
+        label: "Default local-first",
+        mode: "fallback_chain",
+        task_type: "generic",
+        preset: "",
+        preferred_provider_id: "lmstudio",
+        preferred_model_name: "ministral",
+        fallback_chain: [],
+        local_only: false,
+        enabled: true
+      }
+    ]);
+  }
+
+  if (path === "/api/settings/agents") {
+    return jsonResponse([]);
   }
 
   if (path === "/api/chat/sessions") {
@@ -1056,5 +1155,29 @@ describe("App", () => {
     expect(screen.getByText("Orquestra Evidence")).toBeInTheDocument();
     expect(screen.getByText("Claim: memória local-first")).toBeInTheDocument();
     expect(screen.getByText(/Adicionar seed/i)).toBeInTheDocument();
+  });
+
+  it("mostra o Settings Center com storage, segredos e router", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Settings Center/i }));
+
+    await waitFor(() => expect(screen.getByText("Processing Hub e Storage Fabric")).toBeInTheDocument());
+    expect(screen.getByText("Secrets & Providers")).toBeInTheDocument();
+    expect(screen.getByText("Models & Router")).toBeInTheDocument();
+  });
+
+  it("renderiza o instalador gráfico em fallback sem Tauri", async () => {
+    render(<InstallerApp />);
+
+    await waitFor(() => expect(screen.getByText("Instale o Orquestra com runtime, storage, providers e OSINT sob controle.")).toBeInTheDocument());
+    expect(screen.getByText("Dependências obrigatórias")).toBeInTheDocument();
+  });
+
+  it("renderiza o desinstalador gráfico em fallback sem Tauri", async () => {
+    render(<UninstallerApp />);
+
+    await waitFor(() => expect(screen.getByText("Remova o Orquestra sem perder memória, RAG ou evidências por acidente.")).toBeInTheDocument());
+    expect(screen.getByText("Seguro seletivo")).toBeInTheDocument();
   });
 });

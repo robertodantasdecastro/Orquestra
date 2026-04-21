@@ -101,7 +101,26 @@ Arquivos:
 5. `Assistant Workspace`
 6. `OSINT Lab`
 7. `Workspace Browser`
-8. `Projects`
+8. `Settings`
+9. `Projects`
+
+### Settings Center
+
+O `Settings Center` e a superficie de configuracao compartilhada entre web e desktop macOS. Ele cobre:
+
+- runtime e `runtime.json`
+- storage locations e assignments por dominio
+- Keychain e fallback `.env`
+- providers, catalogo de modelos e router
+- agentes especializados
+
+Arquivos principais:
+
+- `orquestra_ai/storage.py`
+- `orquestra_ai/secret_store.py`
+- `orquestra_ai/model_router.py`
+- `orquestra_web/src/App.tsx`
+- `orquestra_web/src/api.ts`
 
 ## Modelo operacional de sessao
 
@@ -428,5 +447,25 @@ O Orquestra local atua como cliente completo do servico remoto.
 
 - `scripts/install_orquestra_macos.sh`
 - `scripts/uninstall_orquestra_macos.sh`
+- `scripts/install_orquestra_macos_full.sh`
+- `scripts/uninstall_orquestra_macos_full.sh`
+- `scripts/build_orquestra_macos_graphical_installer.sh`
+- `scripts/validate_orquestra_macos_graphical_installer.sh`
 - LaunchAgent `ai.orquestra.api`
 - runtime em `~/Library/Application Support/Orquestra/runtime`
+- bootstrap em `~/Library/Application Support/Orquestra/runtime/config/runtime.json`
+
+### Instalador grafico
+
+O instalador grafico e um modo dedicado do app Tauri:
+
+- `VITE_ORQUESTRA_APP_MODE=installer`
+- `VITE_ORQUESTRA_APP_MODE=uninstaller`
+- `orquestra_web/src-tauri/tauri.installer.conf.json`
+- `orquestra_web/src-tauri/tauri.uninstaller.conf.json`
+
+Ele chama os scripts oficiais por comandos Tauri e consome contratos JSON. O DMG completo e:
+
+```text
+orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI Installer_0.2.0_aarch64.dmg
+```

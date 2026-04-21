@@ -42,6 +42,8 @@ from .planner import PlannerService
 from .rag_memory import RagMemoryService
 from .runtime_state import runtime_backup_dir, runtime_install_dir
 from .session_profile import get_session_profile, profile_prompt_section
+from .model_router import OrquestraModelRouter
+from .storage import StorageResolver
 from .workspace import WorkspaceService
 
 DEFAULT_SOURCE_COLLECTIONS = ("knowledge_base", "security_base")
@@ -50,6 +52,8 @@ DEFAULT_SOURCE_COLLECTIONS = ("knowledge_base", "security_base")
 def seed_default_state(session: Session, settings: OrquestraSettings) -> None:
     seed_default_providers(session, settings)
     seed_default_project(session, settings)
+    StorageResolver(settings).seed_defaults(session)
+    OrquestraModelRouter().seed_defaults(session)
 
 
 def seed_default_project(session: Session, settings: OrquestraSettings) -> None:
@@ -88,6 +92,8 @@ def seed_default_providers(session: Session, settings: OrquestraSettings) -> Non
             "model_prefix": "openai",
             "capabilities": ["chat", "streaming", "structured_output", "vision", "embeddings", "local_only"],
             "config": {"mode": "gui_or_headless"},
+            "privacy_level": "local_only",
+            "supports_tools": True,
         },
         {
             "provider_id": "openai",
@@ -99,6 +105,8 @@ def seed_default_providers(session: Session, settings: OrquestraSettings) -> Non
             "model_prefix": "openai",
             "capabilities": ["chat", "streaming", "tool_calling", "structured_output", "vision", "audio_in", "reasoning"],
             "config": {"budget_enabled": True},
+            "privacy_level": "remote",
+            "supports_tools": True,
         },
         {
             "provider_id": "anthropic",
@@ -110,6 +118,8 @@ def seed_default_providers(session: Session, settings: OrquestraSettings) -> Non
             "model_prefix": "anthropic",
             "capabilities": ["chat", "streaming", "tool_calling", "structured_output", "vision", "reasoning"],
             "config": {"prefer_native_tool_use": True},
+            "privacy_level": "remote",
+            "supports_tools": True,
         },
         {
             "provider_id": "deepseek",
@@ -121,6 +131,8 @@ def seed_default_providers(session: Session, settings: OrquestraSettings) -> Non
             "model_prefix": "deepseek",
             "capabilities": ["chat", "streaming", "reasoning", "remote_only"],
             "config": {"low_cost": True},
+            "privacy_level": "remote",
+            "supports_tools": False,
         },
         {
             "provider_id": "ollama",
@@ -132,6 +144,8 @@ def seed_default_providers(session: Session, settings: OrquestraSettings) -> Non
             "model_prefix": "ollama",
             "capabilities": ["chat", "streaming", "local_only"],
             "config": {"optional": True},
+            "privacy_level": "local_only",
+            "supports_tools": False,
         },
     ]
 
@@ -150,6 +164,8 @@ def seed_default_providers(session: Session, settings: OrquestraSettings) -> Non
                 model_prefix=item["model_prefix"],
                 capabilities_json=json.dumps(item["capabilities"], ensure_ascii=False),
                 config_json=json.dumps(item["config"], ensure_ascii=False),
+                privacy_level=item["privacy_level"],
+                supports_tools=item["supports_tools"],
             )
         )
     session.commit()
@@ -674,9 +690,16 @@ def provider_profile_to_dict(record: ProviderProfile) -> dict[str, Any]:
         "transport": record.transport,
         "base_url": record.base_url,
         "api_key_env": record.api_key_env,
+        "secret_ref": record.secret_ref,
         "default_model": record.default_model,
         "model_prefix": record.model_prefix,
         "enabled": record.enabled,
+        "health_status": record.health_status,
+        "last_checked_at": record.last_checked_at.isoformat() if record.last_checked_at else None,
+        "routing_tags": json.loads(record.routing_tags_json or "[]"),
+        "cost_profile": json.loads(record.cost_profile_json or "{}"),
+        "privacy_level": record.privacy_level,
+        "supports_tools": record.supports_tools,
         "capabilities": json.loads(record.capabilities_json or "[]"),
         "config": json.loads(record.config_json or "{}"),
         "updated_at": record.updated_at.isoformat(),

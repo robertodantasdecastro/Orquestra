@@ -9,6 +9,7 @@ Este manual descreve como operar o Orquestra no dia a dia, cobrindo:
 - planner, workflows e workspace
 - aprovacao de memoria e claims
 - uso do Train Plane e do registry
+- configuracao de runtime, storage, chaves, modelos e agentes
 
 ## Modelo mental do produto
 
@@ -22,6 +23,8 @@ O Orquestra e um control plane unico para trabalho com IA. Em vez de usar um cha
 - tarefas e proximos passos
 - workflows executaveis
 - comparacao e promocao de modelos
+- storage multilocal com processamento local
+- roteamento interno de modelos e agentes
 
 ## Areas oficiais da interface
 
@@ -32,7 +35,8 @@ O Orquestra e um control plane unico para trabalho com IA. Em vez de usar um cha
 5. `Assistant Workspace`
 6. `OSINT Lab`
 7. `Workspace Browser`
-8. `Projects`
+8. `Settings`
+9. `Projects`
 
 ## Fluxo recomendado de trabalho
 
@@ -45,7 +49,8 @@ O Orquestra e um control plane unico para trabalho com IA. Em vez de usar um cha
 7. use `Workspace Browser` quando precisar associar arquivos locais
 8. use `OSINT Lab` quando precisar coleta web nativa e evidencias
 9. execute workflows e consultas operacionais no `Execution Center`
-10. use o `Remote Train Plane` quando for sincronizar bundles, treinos ou comparacoes
+10. ajuste `Settings` quando precisar trocar storage, chaves, modelos ou agentes
+11. use o `Remote Train Plane` quando for sincronizar bundles, treinos ou comparacoes
 
 ## Projects
 
@@ -61,6 +66,27 @@ Boas praticas:
 
 - use um projeto por iniciativa real
 - nao misture investigacao OSINT, dataset e assistente pessoal no mesmo projeto sem necessidade
+
+## Settings
+
+`Settings` concentra configuracoes que antes ficavam espalhadas em scripts, `.env` e variaveis locais.
+
+Use `Settings` para:
+
+- revisar `runtime.json` e caminhos ativos
+- cadastrar SSD externo, volume montado ou storage frio
+- configurar quotas e assignments por dominio
+- cadastrar chaves no Keychain sem exibir valores
+- atualizar catalogo de modelos
+- simular a decisao do router interno
+- registrar agentes especializados
+
+Boas praticas:
+
+- mantenha SQLite, memoria e RAG ativo em storage local ou volume montado confiavel
+- use S3/SFTP/archive para backup, export, dataset, evidencias frias e modelos grandes
+- teste providers antes de selecionar como default
+- prefira `local_only` para sessoes com dados sensiveis
 
 ## Assistant Workspace
 
@@ -396,6 +422,7 @@ Guia detalhado:
 Caminhos importantes:
 
 - runtime instalado: `~/Library/Application Support/Orquestra/runtime`
+- runtime bootstrap: `~/Library/Application Support/Orquestra/runtime/config/runtime.json`
 - logs: `~/Library/Logs/Orquestra`
 - handoff: `.codex/memory/orquestra-continuity.md`
 
@@ -424,6 +451,8 @@ Para desinstalar com selecao de app, runtime, memorias, OSINT, workspace e depen
 Guia completo:
 
 - [docs/05-instalador-completo-macos.md](./05-instalador-completo-macos.md)
+- [docs/07-instalador-grafico-macos.md](./07-instalador-grafico-macos.md)
+- [docs/06-settings-center-storage-fabric-router.md](./06-settings-center-storage-fabric-router.md)
 
 Retomada com baixo contexto:
 

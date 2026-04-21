@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ChatMessage,
   ChatSession,
+  AgentProfile,
   HealthState,
   JobRecord,
   MemoryRecord,
@@ -30,11 +31,15 @@ import {
   RemoteTrainPlaneConnectionState,
   RemoteTrainingRun,
   RegistryCompareResult,
+  RuntimeSettingsReport,
   SessionCompactionState,
   SessionSummary,
   SessionProfile,
   SessionTask,
   SessionTranscript,
+  SecretMetadata,
+  StorageLocation,
+  StorageAssignment,
   TrainingCandidate,
   WorkflowRun,
   WorkspaceAsset,
@@ -57,6 +62,8 @@ import {
   createRemoteTrainPlaneComparison,
   createRemoteTrainPlaneEvaluation,
   createRemoteTrainPlaneRun,
+  createSecret,
+  createStorageLocation,
   createOsintInvestigation,
   createOsintSourceRegistryEntry,
   createSession,
@@ -78,6 +85,7 @@ import {
   getRemoteJobLogs,
   getSessionProfile,
   getSummary,
+  getRuntimeSettings,
   getTranscript,
   getWorkflowRun,
   getWorkspaceScan,
@@ -93,6 +101,8 @@ import {
   listMemoryTopics,
   listMessages,
   listModels,
+  listAgents,
+  listModelRoutePolicies,
   listOsintClaims,
   listOsintConnectors,
   listOsintEvidence,
@@ -100,6 +110,9 @@ import {
   listOsintRuns,
   listOsintSourceRegistry,
   listSessions,
+  listSecrets,
+  listStorageAssignments,
+  listStorageLocations,
   listTrainingCandidates,
   listWorkflowRuns,
   listWorkspaceAssets,
@@ -126,13 +139,17 @@ import {
   syncRemoteTrainPlaneDatasetBundle,
   streamChat,
   testRemoteTrainPlaneConnection,
+  refreshModelCatalog,
+  simulateModelRouter,
   updateRemoteTrainPlaneConfig,
   updateOsintConfig,
+  updateRuntimeSettings,
+  updateStorageAssignment,
   updateSessionProfile
 } from "./api";
-import orquestraLogo from "./assets/orquestra-logo.svg";
+import orquestraLogo from "./assets/orquestra-logo.png";
 
-type ViewId = "dashboard" | "process" | "memory" | "execution" | "assistant" | "osint" | "workspace" | "projects";
+type ViewId = "dashboard" | "process" | "memory" | "execution" | "assistant" | "osint" | "workspace" | "settings" | "projects";
 
 const views: Array<{ id: ViewId; title: string; helper: string }> = [
   { id: "dashboard", title: "Operations Dashboard", helper: "Serviços, artefatos, validação e estado vivo da stack." },
@@ -142,6 +159,7 @@ const views: Array<{ id: ViewId; title: string; helper: string }> = [
   { id: "assistant", title: "Assistant Workspace", helper: "Conversa multi-provider com resumo e transcript separados." },
   { id: "osint", title: "OSINT Lab", helper: "Busca web nativa, conectores administráveis, evidência e claims com memória rastreável." },
   { id: "workspace", title: "Workspace Browser", helper: "Leitura multimodal inventory-first e extração sob demanda." },
+  { id: "settings", title: "Settings Center", helper: "Runtime, storage multilocal, Keychain, providers, modelos e router interno." },
   { id: "projects", title: "Projects", helper: "Projetos, defaults e perfis operacionais do control plane." }
 ];
 
@@ -415,6 +433,21 @@ export default function App() {
     prompt_blob: "Resuma as memórias mais relevantes para continuidade do projeto.\nCompare a eficácia do modelo treinado para responder com contexto operacional."
   });
 
+  const [runtimeSettings, setRuntimeSettings] = useState<RuntimeSettingsReport | null>(null);
+  const [storageLocations, setStorageLocations] = useState<StorageLocation[]>([]);
+  const [storageAssignments, setStorageAssignments] = useState<StorageAssignment[]>([]);
+  const [secretMetadata, setSecretMetadata] = useState<SecretMetadata[]>([]);
+  const [routePolicies, setRoutePolicies] = useState<Array<{ id: string; label: string; mode: string; task_type: string; preferred_provider_id: string; preferred_model_name: string }>>([]);
+  const [agentProfiles, setAgentProfiles] = useState<AgentProfile[]>([]);
+  const [storageLocationForm, setStorageLocationForm] = useState({
+    label: "SSD externo Orquestra",
+    backend: "external_drive",
+    base_uri: "/Volumes/SSDExterno/Orquestra/runtime",
+    quota_bytes: ""
+  });
+  const [secretForm, setSecretForm] = useState({ provider_id: "openai", label: "OpenAI API Key", secret_ref: "openai.api_key", value: "" });
+  const [routerSimulation, setRouterSimulation] = useState<Record<string, unknown> | null>(null);
+
   const [selectedRunId, setSelectedRunId] = useState("");
   const [selectedRun, setSelectedRun] = useState<OpsRun | null>(null);
   const [workflowRuns, setWorkflowRuns] = useState<WorkflowRun[]>([]);
@@ -447,9 +480,24 @@ export default function App() {
   }, [opsDashboard]);
 
   async function refreshGlobal(preferredProjectId?: string) {
-    const [healthPayload, dashboardPayload] = await Promise.all([getHealth(), getOpsDashboard()]);
+    const [healthPayload, dashboardPayload, runtimePayload, locationsPayload, assignmentsPayload, secretsPayload, policiesPayload, agentsPayload] = await Promise.all([
+      getHealth(),
+      getOpsDashboard(),
+      getRuntimeSettings(),
+      listStorageLocations(),
+      listStorageAssignments(),
+      listSecrets(),
+      listModelRoutePolicies(),
+      listAgents()
+    ]);
     setHealth(healthPayload);
     setOpsDashboard(dashboardPayload);
+    setRuntimeSettings(runtimePayload);
+    setStorageLocations(locationsPayload);
+    setStorageAssignments(assignmentsPayload.assignments);
+    setSecretMetadata(secretsPayload);
+    setRoutePolicies(policiesPayload);
+    setAgentProfiles(agentsPayload);
     setWorkflowRuns(dashboardPayload.execution_snapshot.workflow_runs ?? []);
 
     const projectsPayload = dashboardPayload.execution_snapshot.projects;
@@ -1748,6 +1796,84 @@ export default function App() {
     }
   }
 
+  async function handleCreateStorageLocation() {
+    try {
+      await createStorageLocation({
+        label: storageLocationForm.label,
+        backend: storageLocationForm.backend,
+        base_uri: storageLocationForm.base_uri,
+        quota_bytes: storageLocationForm.quota_bytes ? Number(storageLocationForm.quota_bytes) : undefined,
+        metadata: { created_from: "settings_center" }
+      });
+      setStatusLine("Local de armazenamento adicionado ao Storage Fabric.");
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao criar storage location: ${String(error)}`);
+    }
+  }
+
+  async function handleSaveRuntimeConfig() {
+    try {
+      const payload = await updateRuntimeSettings({
+        data_root: runtimeSettings?.runtime?.data_root,
+        database_url: runtimeSettings?.runtime?.database_url,
+        qdrant_path: runtimeSettings?.runtime?.qdrant_path,
+        storage_policy: "local_processing_hub"
+      });
+      setRuntimeSettings(payload);
+      setStatusLine("runtime.json atualizado com política local-first.");
+    } catch (error) {
+      setStatusLine(`Falha ao salvar runtime.json: ${String(error)}`);
+    }
+  }
+
+  async function handleCreateSecret() {
+    if (!secretForm.value.trim()) {
+      setStatusLine("Informe a chave localmente para salvar no Keychain. Ela não será exibida depois.");
+      return;
+    }
+    try {
+      await createSecret({
+        provider_id: secretForm.provider_id,
+        label: secretForm.label,
+        secret_ref: secretForm.secret_ref,
+        value: secretForm.value,
+        metadata: { created_from: "settings_center" }
+      });
+      setSecretForm((current) => ({ ...current, value: "" }));
+      setStatusLine("Segredo salvo no cofre seguro.");
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao salvar segredo: ${String(error)}`);
+    }
+  }
+
+  async function handleRefreshModelCatalog() {
+    try {
+      await refreshModelCatalog(selectedProviderId, false);
+      setStatusLine("Catálogo de modelos atualizado.");
+      await refreshGlobal(selectedProjectId);
+    } catch (error) {
+      setStatusLine(`Falha ao atualizar catálogo: ${String(error)}`);
+    }
+  }
+
+  async function handleSimulateRouter() {
+    try {
+      const payload = await simulateModelRouter({
+        session_id: selectedSessionId || undefined,
+        task_type: "chat",
+        preset: sessionProfile?.preset || "assistant",
+        provider_id: selectedProviderId,
+        model_name: selectedModel
+      });
+      setRouterSimulation(payload);
+      setStatusLine("Router interno simulou a decisão para o contexto atual.");
+    } catch (error) {
+      setStatusLine(`Falha ao simular router: ${String(error)}`);
+    }
+  }
+
   async function handleRunOperation(actionId: string) {
     try {
       setOpsActionBusyId(actionId);
@@ -1956,14 +2082,24 @@ export default function App() {
                         <p>{opsDashboard?.execution_snapshot.artifacts.dmg_path || "-"}</p>
                       </article>
                       <article className="provider-card">
-                        <strong>Instalador</strong>
-                        <span>{opsDashboard?.execution_snapshot.artifacts.installer_exists ? "ready" : "missing"}</span>
-                        <p>{opsDashboard?.execution_snapshot.artifacts.installer_path || "-"}</p>
+                        <strong>Instalador CLI completo</strong>
+                        <span>{opsDashboard?.execution_snapshot.artifacts.full_installer_exists ? "ready" : "missing"}</span>
+                        <p>{opsDashboard?.execution_snapshot.artifacts.full_installer_path || opsDashboard?.execution_snapshot.artifacts.installer_path || "-"}</p>
                       </article>
                       <article className="provider-card">
-                        <strong>Desinstalador</strong>
-                        <span>{opsDashboard?.execution_snapshot.artifacts.uninstaller_exists ? "ready" : "missing"}</span>
-                        <p>{opsDashboard?.execution_snapshot.artifacts.uninstaller_path || "-"}</p>
+                        <strong>Desinstalador CLI completo</strong>
+                        <span>{opsDashboard?.execution_snapshot.artifacts.full_uninstaller_exists ? "ready" : "missing"}</span>
+                        <p>{opsDashboard?.execution_snapshot.artifacts.full_uninstaller_path || opsDashboard?.execution_snapshot.artifacts.uninstaller_path || "-"}</p>
+                      </article>
+                      <article className="provider-card">
+                        <strong>Instalador gráfico</strong>
+                        <span>{opsDashboard?.execution_snapshot.artifacts.graphical_installer_app_exists ? "ready" : "missing"}</span>
+                        <p>{opsDashboard?.execution_snapshot.artifacts.graphical_installer_app_path || "-"}</p>
+                      </article>
+                      <article className="provider-card">
+                        <strong>DMG gráfico completo</strong>
+                        <span>{opsDashboard?.execution_snapshot.artifacts.graphical_installer_dmg_exists ? "ready" : "missing"}</span>
+                        <p>{opsDashboard?.execution_snapshot.artifacts.graphical_installer_dmg_path || "-"}</p>
                       </article>
                     </div>
                   </div>
@@ -3811,6 +3947,164 @@ export default function App() {
                       </div>
                     </article>
                   )}
+                </section>
+              </div>
+            )}
+
+            {view === "settings" && (
+              <div className="stage-grid">
+                <section className="panel">
+                  <div className="panel-head">
+                    <div>
+                      <p className="eyebrow">Runtime & Storage</p>
+                      <h3>Processing Hub e Storage Fabric</h3>
+                    </div>
+                    <button type="button" className="ghost-button" onClick={handleSaveRuntimeConfig}>
+                      Gravar runtime.json
+                    </button>
+                  </div>
+                  <div className="metric-grid">
+                    <article className="provider-card">
+                      <strong>Runtime</strong>
+                      <span>{String(runtimeSettings?.runtime?.runtime_dir || health?.runtime.runtime_dir || "-")}</span>
+                      <p>{String(runtimeSettings?.runtime?.data_root || health?.runtime.data_root || "-")}</p>
+                    </article>
+                    <article className="provider-card">
+                      <strong>Política</strong>
+                      <span>hub local obrigatório</span>
+                      <p>SQLite/RAG ativos ficam em local_path, external_drive ou cloud_mounted confiável.</p>
+                    </article>
+                    <article className="provider-card">
+                      <strong>Remoto frio</strong>
+                      <span>S3/SFTP/archive</span>
+                      <p>Usado para backups, exports, datasets, evidências frias e modelos grandes.</p>
+                    </article>
+                  </div>
+
+                  <div className="split-form">
+                    <label>
+                      Nome do local
+                      <input value={storageLocationForm.label} onChange={(event) => setStorageLocationForm((current) => ({ ...current, label: event.target.value }))} />
+                    </label>
+                    <label>
+                      Backend
+                      <select value={storageLocationForm.backend} onChange={(event) => setStorageLocationForm((current) => ({ ...current, backend: event.target.value }))}>
+                        <option value="local_path">local_path</option>
+                        <option value="external_drive">external_drive</option>
+                        <option value="cloud_mounted">cloud_mounted</option>
+                        <option value="s3_compatible">s3_compatible frio</option>
+                        <option value="sftp">sftp frio</option>
+                        <option value="readonly_archive">readonly_archive</option>
+                      </select>
+                    </label>
+                    <label>
+                      Base URI
+                      <input value={storageLocationForm.base_uri} onChange={(event) => setStorageLocationForm((current) => ({ ...current, base_uri: event.target.value }))} />
+                    </label>
+                    <label>
+                      Quota bytes
+                      <input value={storageLocationForm.quota_bytes} onChange={(event) => setStorageLocationForm((current) => ({ ...current, quota_bytes: event.target.value }))} />
+                    </label>
+                  </div>
+                  <button type="button" className="primary-button" onClick={handleCreateStorageLocation}>
+                    Adicionar local
+                  </button>
+
+                  <div className="provider-grid">
+                    {storageLocations.map((location) => (
+                      <article key={location.id} className="provider-card">
+                        <strong>{location.label}</strong>
+                        <span>{location.backend} · {location.health_status}</span>
+                        <p>{location.base_uri}</p>
+                        <small>quota {location.quota_bytes ? formatBytes(location.quota_bytes) : "sem limite definido"}</small>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="panel two-column-panel">
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Assignments</p>
+                        <h3>Domínios de dados</h3>
+                      </div>
+                    </div>
+                    <div className="stack-list">
+                      {storageAssignments.map((assignment) => (
+                        <article key={assignment.id} className="stack-row">
+                          <strong>{assignment.domain}</strong>
+                          <span>{assignment.mode} · {assignment.relative_path} · {assignment.location_id}</span>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Secrets & Providers</p>
+                        <h3>Keychain sem revelar valores</h3>
+                      </div>
+                    </div>
+                    <div className="form-stack">
+                      <select value={secretForm.provider_id} onChange={(event) => setSecretForm((current) => ({ ...current, provider_id: event.target.value }))}>
+                        {providers.map((provider) => (
+                          <option key={provider.provider_id} value={provider.provider_id}>{provider.label}</option>
+                        ))}
+                      </select>
+                      <input value={secretForm.label} onChange={(event) => setSecretForm((current) => ({ ...current, label: event.target.value }))} />
+                      <input value={secretForm.secret_ref} onChange={(event) => setSecretForm((current) => ({ ...current, secret_ref: event.target.value }))} />
+                      <input type="password" value={secretForm.value} onChange={(event) => setSecretForm((current) => ({ ...current, value: event.target.value }))} placeholder="Cole a chave; ela não será exibida depois" />
+                      <button type="button" className="primary-button" onClick={handleCreateSecret}>Salvar no cofre</button>
+                    </div>
+                    <div className="token-list">
+                      {secretMetadata.map((secret) => (
+                        <span key={secret.id}>{secret.provider_id}: {secret.secret_ref} · {secret.storage_backend}</span>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="panel two-column-panel">
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Models & Router</p>
+                        <h3>Decisão interna por tarefa</h3>
+                      </div>
+                      <button type="button" className="ghost-button" onClick={handleRefreshModelCatalog}>Atualizar modelos</button>
+                    </div>
+                    <div className="provider-grid">
+                      {routePolicies.map((policy) => (
+                        <article key={policy.id} className="provider-card">
+                          <strong>{policy.label}</strong>
+                          <span>{policy.mode} · {policy.task_type}</span>
+                          <p>{policy.preferred_provider_id}/{policy.preferred_model_name || "default"}</p>
+                        </article>
+                      ))}
+                    </div>
+                    <button type="button" className="primary-button" onClick={handleSimulateRouter}>Simular router</button>
+                    <pre className="preview-text compact">
+                      {routerSimulation ? JSON.stringify(routerSimulation, null, 2) : "A decisão do router aparece aqui."}
+                    </pre>
+                  </div>
+                  <div>
+                    <div className="panel-head slim">
+                      <div>
+                        <p className="eyebrow">Agents</p>
+                        <h3>Especialistas configuráveis</h3>
+                      </div>
+                    </div>
+                    <div className="provider-grid">
+                      {agentProfiles.map((agent) => (
+                        <article key={agent.id} className="provider-card">
+                          <strong>{agent.label}</strong>
+                          <span>{agent.privacy_level} · {agent.enabled ? "ativo" : "inativo"}</span>
+                          <p>{agent.description || `${agent.provider_id}/${agent.model_name}`}</p>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
                 </section>
               </div>
             )}

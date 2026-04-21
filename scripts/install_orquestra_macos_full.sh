@@ -12,6 +12,9 @@ SYNC_RUNTIME="true"
 OPEN_APP="false"
 RUN_VALIDATION="true"
 OPTIONAL_LIST=""
+JSON_MODE="false"
+EMIT_EVENTS="false"
+PLAN_FILE=""
 
 usage() {
   cat <<'USAGE'
@@ -33,6 +36,11 @@ Opcoes:
   --no-runtime-sync                Nao sincroniza runtime instalado.
   --open                           Abre o app ao final.
   --skip-validation                Nao roda validate_orquestra.sh ao final.
+  --json                           Emite contrato JSON machine-readable em modo check-only.
+  --plan-file path                 Usa/salva plano JSON para UI grafica.
+  --emit-events                    Emite eventos JSONL simples para UI grafica.
+  --no-tty                         Alias seguro para execucao sem prompt interativo.
+  --no-secrets-output              Garante que segredos nunca sejam impressos.
   -h, --help                       Mostra esta ajuda.
 
 Exemplos:
@@ -88,6 +96,21 @@ while [[ $# -gt 0 ]]; do
       RUN_VALIDATION="false"
       shift
       ;;
+    --json)
+      JSON_MODE="true"
+      shift
+      ;;
+    --plan-file)
+      PLAN_FILE="${2:-}"
+      shift 2
+      ;;
+    --emit-events)
+      EMIT_EVENTS="true"
+      shift
+      ;;
+    --no-tty|--no-secrets-output)
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -99,6 +122,19 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "${JSON_MODE}" == "true" && "${CHECK_ONLY}" == "true" ]]; then
+  /usr/bin/python3 "${ROOT_DIR}/scripts/orquestra_installer_contract.py" install-plan
+  exit 0
+fi
+
+if [[ -n "${PLAN_FILE}" ]]; then
+  /usr/bin/python3 "${ROOT_DIR}/scripts/orquestra_installer_contract.py" install-plan > "${PLAN_FILE}"
+fi
+
+if [[ "${EMIT_EVENTS}" == "true" ]]; then
+  /usr/bin/python3 "${ROOT_DIR}/scripts/orquestra_installer_contract.py" emit-smoke
+fi
 
 prompt_yes() {
   local question="$1"

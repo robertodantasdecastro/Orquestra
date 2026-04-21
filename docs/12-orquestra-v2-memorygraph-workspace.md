@@ -339,12 +339,45 @@ Memoria duravel entra somente depois de aprovacao.
 - `experiments/orquestra/operations`
 - `experiments/orquestra/rag_runtime`
 - `experiments/orquestra/osint`
+- `experiments/orquestra/install/backups`
 
 ### Runtime instalado
 
 Quando o app e instalado, o runtime operacional passa a viver em:
 
 - `~/Library/Application Support/Orquestra/runtime`
+
+O bootstrap local fica em:
+
+- `~/Library/Application Support/Orquestra/runtime/config/runtime.json`
+
+Esse arquivo aponta o `data_root`, o banco ativo e caminhos auxiliares antes de o SQLite estar disponivel.
+
+### Storage Fabric
+
+O Storage Fabric resolve onde cada dominio grava dados:
+
+- SQLite ativo
+- memoria quente
+- RAG/Chroma/Qdrant ativo
+- OSINT
+- workspace
+- workflows
+- Train Plane
+- backups
+- exports e datasets
+
+Regras:
+
+- SQLite ativo e indice RAG ativo exigem storage local ou volume montado confiavel.
+- S3/SFTP/archive sao storage frio para backup, export, dataset, evidencias e modelos grandes.
+- Fontes frias precisam ser hidratadas localmente antes de entrar no RAG.
+
+### Cofre e router
+
+Segredos cadastrados pela UI usam Keychain com service `ai.orquestra.secrets`. O banco guarda apenas `secret_ref` e metadados.
+
+O router interno registra decisoes de provider/modelo por tarefa, preset e politica de privacidade em `ModelRouteDecision`.
 
 ### Bootstrap e shutdown
 

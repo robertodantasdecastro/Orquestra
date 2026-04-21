@@ -18,8 +18,11 @@ O fluxo novo e hibrido seguro:
 - `scripts/install_orquestra_macos_full.sh`
 - `scripts/check_orquestra_macos_installation.sh`
 - `scripts/uninstall_orquestra_macos_full.sh`
+- `scripts/orquestra_installer_contract.py`
 
 O instalador antigo `scripts/install_orquestra_macos.sh` continua existindo como instalador base do app e runtime. O instalador completo chama esse script depois de preparar o Mac.
+
+O instalador grafico usa estes mesmos scripts como motor confiavel. A UI nao interpreta logs humanos; ela usa contratos JSON descritos em [docs/07-instalador-grafico-macos.md](./07-instalador-grafico-macos.md).
 
 ## O que e obrigatorio
 
@@ -105,6 +108,46 @@ Instalacao com preenchimento guiado do `.env`:
 - `--no-runtime-sync`: nao sincroniza runtime instalado
 - `--open`: abre o app ao final
 - `--skip-validation`: nao roda `validate_orquestra.sh` ao final
+- `--json`: emite um plano machine-readable para a UI grafica
+- `--plan-file <path>`: salva o plano JSON em arquivo
+- `--emit-events`: emite eventos JSONL de progresso/smoke
+- `--no-tty`: evita fluxos interativos para execucao controlada por app
+- `--no-secrets-output`: reforca que nenhum segredo deve aparecer em stdout/log
+
+## Contratos para o instalador grafico
+
+Gerar plano de instalacao sem alterar o sistema:
+
+```bash
+./scripts/install_orquestra_macos_full.sh --check-only --json
+./scripts/install_orquestra_macos_full.sh --check-only --json --plan-file /tmp/orquestra-install-plan.json
+```
+
+Gerar plano de desinstalacao:
+
+```bash
+./scripts/uninstall_orquestra_macos_full.sh --dry-run --json
+./scripts/uninstall_orquestra_macos_full.sh --dry-run --json --plan-file /tmp/orquestra-uninstall-plan.json
+```
+
+Relatorio JSON de verificacao:
+
+```bash
+./scripts/check_orquestra_macos_installation.sh --check-only --json
+```
+
+Esses comandos retornam estruturas como:
+
+- `InstallPlan`
+- `InstallStepEvent`
+- `DependencyStatus`
+- `RuntimeStoragePlan`
+- `ProviderSetupPlan`
+- `UninstallPlan`
+- `UninstallItem`
+- `BackupPlan`
+
+Nenhum campo deve conter chave real, token ou segredo. A UI mostra apenas `configured`, `missing`, `secret_ref` e recomendacoes de acao.
 
 ## Configuracao de logins e chaves
 
@@ -291,10 +334,35 @@ Categorias verificadas:
 - build
 - app
 - runtime
+- storage
 - providers
 - osint
 - multimodal
 - validacao
+
+## Instalador e desinstalador grafico
+
+Para gerar o DMG grafico completo:
+
+```bash
+./scripts/build_orquestra_macos_graphical_installer.sh
+./scripts/validate_orquestra_macos_graphical_installer.sh
+```
+
+O DMG gerado fica em:
+
+```text
+orquestra_web/src-tauri/target/release/bundle/dmg/Orquestra AI Installer_0.2.0_aarch64.dmg
+```
+
+Ele contem:
+
+- `Orquestra Installer.app`
+- `Orquestra Uninstaller.app`
+- `Orquestra AI.app`
+- `README Instalação.txt`
+
+Use [docs/07-instalador-grafico-macos.md](./07-instalador-grafico-macos.md) para validar o fluxo visual.
 
 ## Validacao apos instalacao
 
@@ -387,11 +455,13 @@ Podem conter memoria, evidencias, datasets ou chaves locais:
 
 - `.env`
 - `~/Library/Application Support/Orquestra/runtime`
+- `~/Library/Application Support/Orquestra/runtime/config/runtime.json`
 - `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/orquestra_v2.db`
 - `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/memorygraph`
 - `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/osint`
 - `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/workspace`
 - `~/Library/Application Support/Orquestra/runtime/experiments/orquestra/rag_runtime`
+- segredos no Keychain com service `ai.orquestra.secrets`
 
 Antes de remover esses itens, use:
 
